@@ -1,0 +1,1063 @@
+{
+  "address": "2Y171N7NVjqtjguLHrNwXfA5w7yHW4hkJAbNySBw7pmQ",
+  "metadata": {
+    "name": "vibestamp",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "create_raffle",
+      "discriminator": [
+        226,
+        206,
+        159,
+        34,
+        213,
+        207,
+        98,
+        126
+      ],
+      "accounts": [
+        {
+          "name": "raffle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  102,
+                  102,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "merchant"
+              },
+              {
+                "kind": "arg",
+                "path": "raffle_index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "merchant",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "raffle_index",
+          "type": "u64"
+        },
+        {
+          "name": "prize_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "duration_seconds",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "draw_raffle",
+      "discriminator": [
+        117,
+        70,
+        132,
+        142,
+        127,
+        14,
+        224,
+        160
+      ],
+      "accounts": [
+        {
+          "name": "raffle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  102,
+                  102,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raffle.merchant",
+                "account": "Raffle"
+              },
+              {
+                "kind": "account",
+                "path": "raffle.raffle_index",
+                "account": "Raffle"
+              }
+            ]
+          }
+        },
+        {
+          "name": "winner",
+          "writable": true
+        },
+        {
+          "name": "merchant",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "exchange_points",
+      "discriminator": [
+        202,
+        118,
+        76,
+        92,
+        118,
+        209,
+        153,
+        251
+      ],
+      "accounts": [
+        {
+          "name": "loyalty_card_a",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  121,
+                  97,
+                  108,
+                  116,
+                  121,
+                  95,
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "exchange_agreement.merchant_a",
+                "account": "ExchangeAgreement"
+              },
+              {
+                "kind": "account",
+                "path": "customer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "loyalty_card_b",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  121,
+                  97,
+                  108,
+                  116,
+                  121,
+                  95,
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "exchange_agreement.merchant_b",
+                "account": "ExchangeAgreement"
+              },
+              {
+                "kind": "account",
+                "path": "customer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "exchange_agreement",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  120,
+                  99,
+                  104,
+                  97,
+                  110,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "exchange_agreement.merchant_a",
+                "account": "ExchangeAgreement"
+              },
+              {
+                "kind": "account",
+                "path": "exchange_agreement.merchant_b",
+                "account": "ExchangeAgreement"
+              }
+            ]
+          }
+        },
+        {
+          "name": "customer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "points_to_exchange",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_exchange_agreement",
+      "discriminator": [
+        169,
+        118,
+        248,
+        26,
+        3,
+        166,
+        132,
+        111
+      ],
+      "accounts": [
+        {
+          "name": "exchange_agreement",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  120,
+                  99,
+                  104,
+                  97,
+                  110,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "merchant_a"
+              },
+              {
+                "kind": "arg",
+                "path": "merchant_b"
+              }
+            ]
+          }
+        },
+        {
+          "name": "merchant_a",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "merchant_b",
+          "type": "pubkey"
+        },
+        {
+          "name": "rate_a_to_b",
+          "type": "u64"
+        },
+        {
+          "name": "rate_b_to_a",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_merchant",
+      "discriminator": [
+        7,
+        90,
+        74,
+        38,
+        99,
+        111,
+        142,
+        77
+      ],
+      "accounts": [
+        {
+          "name": "merchant_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  114,
+                  99,
+                  104,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "signer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "signer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "store_name",
+          "type": "string"
+        },
+        {
+          "name": "point_rate",
+          "type": "u64"
+        },
+        {
+          "name": "redemption_rate",
+          "type": "u64"
+        },
+        {
+          "name": "referral_bonus_stamp",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "record_purchase",
+      "discriminator": [
+        107,
+        25,
+        137,
+        125,
+        231,
+        17,
+        11,
+        60
+      ],
+      "accounts": [
+        {
+          "name": "loyalty_card",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  121,
+                  97,
+                  108,
+                  116,
+                  121,
+                  95,
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "merchant_signer"
+              },
+              {
+                "kind": "account",
+                "path": "customer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "merchant_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  114,
+                  99,
+                  104,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "merchant_signer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "merchant_signer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "customer"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount_lamports",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "redeem_points",
+      "discriminator": [
+        178,
+        79,
+        85,
+        218,
+        121,
+        101,
+        34,
+        12
+      ],
+      "accounts": [
+        {
+          "name": "loyalty_card",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  121,
+                  97,
+                  108,
+                  116,
+                  121,
+                  95,
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "merchant_state"
+              },
+              {
+                "kind": "account",
+                "path": "customer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "merchant_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  114,
+                  99,
+                  104,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "merchant_state.owner",
+                "account": "MerchantState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "customer",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "points_to_redeem",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "stake_badge_for_raffle",
+      "discriminator": [
+        167,
+        199,
+        186,
+        66,
+        4,
+        249,
+        148,
+        158
+      ],
+      "accounts": [
+        {
+          "name": "raffle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  102,
+                  102,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raffle.merchant",
+                "account": "Raffle"
+              },
+              {
+                "kind": "account",
+                "path": "raffle.raffle_index",
+                "account": "Raffle"
+              }
+            ]
+          }
+        },
+        {
+          "name": "loyalty_card",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  121,
+                  97,
+                  108,
+                  116,
+                  121,
+                  95,
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raffle.merchant",
+                "account": "Raffle"
+              },
+              {
+                "kind": "account",
+                "path": "customer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "customer",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "badge_index",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "update_merchant",
+      "discriminator": [
+        192,
+        114,
+        143,
+        220,
+        199,
+        50,
+        234,
+        165
+      ],
+      "accounts": [
+        {
+          "name": "merchant_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  114,
+                  99,
+                  104,
+                  97,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "merchant_state"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "store_name",
+          "type": "string"
+        },
+        {
+          "name": "point_rate",
+          "type": "u64"
+        },
+        {
+          "name": "redemption_rate",
+          "type": "u64"
+        },
+        {
+          "name": "referral_bonus_stamp",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "ExchangeAgreement",
+      "discriminator": [
+        185,
+        242,
+        248,
+        187,
+        247,
+        74,
+        48,
+        245
+      ]
+    },
+    {
+      "name": "LoyaltyCard",
+      "discriminator": [
+        204,
+        41,
+        42,
+        207,
+        153,
+        71,
+        5,
+        60
+      ]
+    },
+    {
+      "name": "MerchantState",
+      "discriminator": [
+        122,
+        123,
+        114,
+        132,
+        232,
+        201,
+        233,
+        199
+      ]
+    },
+    {
+      "name": "Raffle",
+      "discriminator": [
+        143,
+        133,
+        63,
+        173,
+        138,
+        10,
+        142,
+        200
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidPointRate",
+      "msg": "Earn rate must be between 10 and 100 STAMP per 0.01 SOL."
+    },
+    {
+      "code": 6001,
+      "name": "InvalidRedemptionRate",
+      "msg": "Redemption rate must be between 500 and 5000 STAMP per $1 discount."
+    },
+    {
+      "code": 6002,
+      "name": "InsufficientPoints",
+      "msg": "Customer has insufficient points balance."
+    },
+    {
+      "code": 6003,
+      "name": "BelowMinimumRedemption",
+      "msg": "Redemption points must be at least the merchant's redemption rate ($1 equivalent)."
+    },
+    {
+      "code": 6004,
+      "name": "ExchangeNotActive",
+      "msg": "Points exchange agreement is inactive."
+    },
+    {
+      "code": 6005,
+      "name": "MathOverflow",
+      "msg": "Math calculation overflowed."
+    },
+    {
+      "code": 6006,
+      "name": "RaffleNotActive",
+      "msg": "Raffle is inactive."
+    },
+    {
+      "code": 6007,
+      "name": "RaffleClosed",
+      "msg": "Raffle has closed or expired."
+    },
+    {
+      "code": 6008,
+      "name": "RaffleNotClosedYet",
+      "msg": "Raffle is still active and cannot be drawn yet."
+    },
+    {
+      "code": 6009,
+      "name": "RaffleFull",
+      "msg": "Raffle entries are full."
+    },
+    {
+      "code": 6010,
+      "name": "BadgeNotUnlocked",
+      "msg": "Selected achievement badge has not been unlocked by the customer."
+    },
+    {
+      "code": 6011,
+      "name": "BadgeAlreadyStaked",
+      "msg": "Selected achievement badge has already been staked in this raffle."
+    },
+    {
+      "code": 6012,
+      "name": "NoStakerInRaffle",
+      "msg": "No entries found in this raffle."
+    },
+    {
+      "code": 6013,
+      "name": "ReferralAlreadyClaimed",
+      "msg": "Customer has already claimed a referral bonus at this store."
+    },
+    {
+      "code": 6014,
+      "name": "InvalidCustomerCard",
+      "msg": "The provided card does not belong to this customer."
+    }
+  ],
+  "types": [
+    {
+      "name": "ExchangeAgreement",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "merchant_a",
+            "type": "pubkey"
+          },
+          {
+            "name": "merchant_b",
+            "type": "pubkey"
+          },
+          {
+            "name": "rate_a_to_b",
+            "type": "u64"
+          },
+          {
+            "name": "rate_b_to_a",
+            "type": "u64"
+          },
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LoyaltyCard",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "merchant",
+            "type": "pubkey"
+          },
+          {
+            "name": "customer",
+            "type": "pubkey"
+          },
+          {
+            "name": "stamp_balance",
+            "type": "u64"
+          },
+          {
+            "name": "tier",
+            "type": {
+              "defined": {
+                "name": "Tier"
+              }
+            }
+          },
+          {
+            "name": "streak_count",
+            "type": "u8"
+          },
+          {
+            "name": "last_purchase_ts",
+            "type": "i64"
+          },
+          {
+            "name": "total_purchases",
+            "type": "u32"
+          },
+          {
+            "name": "total_spent_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "achievements",
+            "type": {
+              "array": [
+                "bool",
+                10
+              ]
+            }
+          },
+          {
+            "name": "referral_claimed",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MerchantState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "store_name",
+            "type": "string"
+          },
+          {
+            "name": "point_rate",
+            "type": "u64"
+          },
+          {
+            "name": "redemption_rate",
+            "type": "u64"
+          },
+          {
+            "name": "referral_bonus_stamp",
+            "type": "u64"
+          },
+          {
+            "name": "total_customers",
+            "type": "u32"
+          },
+          {
+            "name": "total_volume_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Raffle",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "merchant",
+            "type": "pubkey"
+          },
+          {
+            "name": "raffle_index",
+            "type": "u64"
+          },
+          {
+            "name": "prize_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "closes_at",
+            "type": "i64"
+          },
+          {
+            "name": "staked_entries",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "staked_badges",
+            "type": "bytes"
+          },
+          {
+            "name": "winner",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Tier",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Bronze"
+          },
+          {
+            "name": "Silver"
+          },
+          {
+            "name": "Gold"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "SEED",
+      "type": "string",
+      "value": "\"anchor\""
+    }
+  ]
+}

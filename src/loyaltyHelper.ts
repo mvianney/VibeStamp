@@ -1,6 +1,6 @@
 import { Connection, PublicKey, Keypair, Transaction, SystemProgram } from '@solana/web3.js';
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
-import idl from '../vibestamp/target/idl/vibestamp.json';
+import idl from './idl/vibestamp.json';
 
 // Deployed Program ID
 export const PROGRAM_ID = new PublicKey('2Y171N7NVjqtjguLHrNwXfA5w7yHW4hkJAbNySBw7pmQ');
