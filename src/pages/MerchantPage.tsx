@@ -275,6 +275,8 @@ function MerchantDashboard({
   // Dashboard Stats & Customers
   const [customers, setCustomers] = useState<LoyaltyCard[]>([]);
   const [storeBalance, setStoreBalance] = useState<number>(0);
+  const [loadingBalance, setLoadingBalance] = useState<boolean>(true);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
   const [loadingStats, setLoadingStats] = useState(true);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -344,6 +346,21 @@ function MerchantDashboard({
     }
   };
 
+  // Load merchant SOL balance
+  const refreshBalance = async () => {
+    setLoadingBalance(true);
+    setBalanceError(null);
+    try {
+      const bal = await connection.getBalance(merchantPublicKey, 'confirmed');
+      setStoreBalance(bal / LAMPORTS_PER_SOL);
+    } catch (e: any) {
+      console.error('Failed to fetch store SOL balance:', e);
+      setBalanceError(e.message || 'Failed to fetch balance');
+    } finally {
+      setLoadingBalance(false);
+    }
+  };
+
   // 1. Fetch dashboard data
   useEffect(() => {
     let active = true;
@@ -351,14 +368,24 @@ function MerchantDashboard({
       try {
         setLoadingStats(true);
         const list = await getMerchantCustomers(connection, profile.walletPublicKey);
+        
+        // Load balance
+        setLoadingBalance(true);
+        setBalanceError(null);
         const bal = await connection.getBalance(merchantPublicKey, 'confirmed');
         if (active) {
-          setCustomers(list);
           setStoreBalance(bal / LAMPORTS_PER_SOL);
+          setCustomers(list);
+          setLoadingBalance(false);
         }
+        
         await loadMerchantRaffles();
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error loading merchant dashboard data:', err);
+        if (active) {
+          setBalanceError(err.message || 'Failed to fetch balance');
+          setLoadingBalance(false);
+        }
       } finally {
         if (active) setLoadingStats(false);
       }
@@ -367,6 +394,10 @@ function MerchantDashboard({
     // Sync settings state when profile changes
     setEditPointRate(profile.pointRate);
     setEditRedemptionRate(profile.redemptionRate);
+
+    return () => {
+      active = false;
+    };
   }, [profile, refreshTrigger]);
 
   const handleSaveSettings = async () => {
@@ -386,6 +417,7 @@ function MerchantDashboard({
       
       // Update parent state
       onUpdate(updatedProfile);
+      await refreshBalance();
       setIsEditingSettings(false);
       setRefreshTrigger(prev => prev + 1);
     } catch (err) {
@@ -602,6 +634,7 @@ function MerchantDashboard({
       });
 
       setCheckoutStep('success');
+      await refreshBalance();
       setRefreshTrigger(prev => prev + 1);
 
       // Refresh simulated customer balance if they were the payer
@@ -677,8 +710,7 @@ function MerchantDashboard({
       });
       setRaffleIndexToCreate(prev => prev + 1);
       loadMerchantRaffles();
-      const bal = await connection.getBalance(merchantPublicKey, 'confirmed');
-      setStoreBalance(bal / LAMPORTS_PER_SOL);
+      await refreshBalance();
     } catch (e: any) {
       console.error(e);
       setCreateRaffleStatus({ success: false, msg: e.message || 'Failed to create raffle' });
@@ -727,8 +759,7 @@ function MerchantDashboard({
       }
 
       loadMerchantRaffles();
-      const bal = await connection.getBalance(merchantPublicKey, 'confirmed');
-      setStoreBalance(bal / LAMPORTS_PER_SOL);
+      await refreshBalance();
     } catch (e: any) {
       console.error(e);
       setDrawingStatus(prev => ({
@@ -817,9 +848,52 @@ function MerchantDashboard({
         <div className="merchant-stats-row">
           <div className="stat-card">
             <div className="stat-icon" style={{ background: 'rgba(20, 241, 149, 0.1)', color: 'var(--color-primary)' }}><Wallet size={20} /></div>
-            <div className="stat-info">
-              <span className="stat-label">Store Balance</span>
-              <span className="stat-value">{loadingStats ? '...' : `${storeBalance.toFixed(4)} SOL`}</span>
+            <div className="stat-info" style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <span className="stat-label">Store Balance</span>
+                <button
+                  onClick={refreshBalance}
+                  disabled={loadingBalance}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    padding: '2px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    opacity: loadingBalance ? 0.5 : 0.8,
+                    transition: 'opacity 0.2s',
+                  }}
+                  title="Refresh Balance"
+                  id="btn-refresh-balance-merchant"
+                >
+                  <RefreshCw size={12} className={loadingBalance ? "spin" : ""} style={{ animation: loadingBalance ? 'spin 1s linear infinite' : 'none' }} />
+                </button>
+              </div>
+              {loadingBalance ? (
+                <span className="stat-value" style={{ fontStyle: 'italic', fontSize: '16px' }}>Loading...</span>
+              ) : balanceError ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span className="stat-value" style={{ fontSize: '13px', color: 'var(--color-secondary)' }}>Error fetching balance</span>
+                  <button
+                    onClick={refreshBalance}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--color-primary)',
+                      fontSize: '11px',
+                      textDecoration: 'underline',
+                      cursor: 'pointer',
+                      padding: 0
+                    }}
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <span className="stat-value">{storeBalance.toFixed(4)} SOL</span>
+              )}
             </div>
           </div>
           <div className="stat-card">

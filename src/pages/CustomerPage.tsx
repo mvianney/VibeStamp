@@ -162,6 +162,8 @@ function CustomerMain({
   
   // Wallet state
   const [balance, setBalance] = useState<number>(0);
+  const [loadingBalance, setLoadingBalance] = useState<boolean>(true);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
 
   // Cards & Merchant States list
@@ -212,11 +214,16 @@ function CustomerMain({
 
   // Load customer stats
   const refreshBalance = async () => {
+    setLoadingBalance(true);
+    setBalanceError(null);
     try {
       const bal = await connection.getBalance(new PublicKey(profile.walletPublicKey), 'confirmed');
       setBalance(bal / LAMPORTS_PER_SOL);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to fetch SOL balance:', e);
+      setBalanceError(e.message || 'Failed to fetch balance');
+    } finally {
+      setLoadingBalance(false);
     }
   };
 
@@ -247,10 +254,12 @@ function CustomerMain({
   useEffect(() => {
     let active = true;
     async function checkAndAirdrop() {
+      setLoadingBalance(true);
+      setBalanceError(null);
       try {
         const pubkey = new PublicKey(profile.walletPublicKey);
         const bal = await connection.getBalance(pubkey, 'confirmed');
-        const sol = bal / LAMPORTS_PER_SOL;
+        let sol = bal / LAMPORTS_PER_SOL;
         if (active) setBalance(sol);
         
         if (sol < 0.1) {
@@ -259,12 +268,16 @@ function CustomerMain({
           const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
           await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
           const finalBal = await connection.getBalance(pubkey, 'confirmed');
+          sol = finalBal / LAMPORTS_PER_SOL;
           if (active) {
-            setBalance(finalBal / LAMPORTS_PER_SOL);
+            setBalance(sol);
           }
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error('Mount airdrop check error:', e);
+        if (active) setBalanceError(e.message || 'Failed to fetch balance');
+      } finally {
+        if (active) setLoadingBalance(false);
       }
     }
 
@@ -455,6 +468,7 @@ function CustomerMain({
       });
       setSelectedCard(updatedCard);
       loadCustomerData();
+      await refreshBalance();
     } catch (e: any) {
       setRedeemStatus({ success: false, msg: e.message || 'Redemption request failed' });
     }
@@ -499,6 +513,7 @@ function CustomerMain({
       });
       setExchangePointsAmount(100);
       loadCustomerData();
+      await refreshBalance();
     } catch (e: any) {
       console.error(e);
       setExchangeStatus({ success: false, msg: e.message || 'Points exchange failed' });
@@ -553,6 +568,7 @@ function CustomerMain({
 
       loadRafflesData();
       loadCustomerData();
+      await refreshBalance();
     } catch (e: any) {
       console.error(e);
       setStakingStatus(prev => ({
@@ -670,9 +686,54 @@ function CustomerMain({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ textAlign: 'right' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Wallet Balance</span>
-            <strong className="mono" style={{ fontSize: '20px', color: 'var(--color-primary)' }}>{balance.toFixed(4)} SOL</strong>
+          <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              Wallet Balance
+              <button
+                onClick={refreshBalance}
+                disabled={loadingBalance}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  padding: '2px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  opacity: loadingBalance ? 0.5 : 0.8,
+                  transition: 'opacity 0.2s',
+                }}
+                title="Refresh Balance"
+                id="btn-refresh-balance-customer"
+              >
+                <RefreshCw size={12} className={loadingBalance ? "spin" : ""} style={{ animation: loadingBalance ? 'spin 1s linear infinite' : 'none' }} />
+              </button>
+            </span>
+            {loadingBalance ? (
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontStyle: 'italic', height: '28px', display: 'flex', alignItems: 'center' }}>Loading...</span>
+            ) : balanceError ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                <span style={{ fontSize: '11px', color: 'var(--color-secondary)' }}>Error fetching balance</span>
+                <button
+                  onClick={refreshBalance}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--color-primary)',
+                    fontSize: '11px',
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    padding: 0
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <strong className="mono" style={{ fontSize: '20px', color: 'var(--color-primary)', height: '28px', display: 'flex', alignItems: 'center' }}>
+                {balance.toFixed(4)} SOL
+              </strong>
+            )}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
             <button 
