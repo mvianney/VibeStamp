@@ -231,6 +231,7 @@ import {
   createRaffle,
   drawRaffle,
   getRaffles,
+  initializeExchangeAgreement,
   type LoyaltyCard,
   type RaffleState
 } from '../loyaltyHelper';
@@ -329,6 +330,57 @@ function MerchantDashboard({
   const [loadingMerchantRaffles, setLoadingMerchantRaffles] = useState(false);
   const [isDrawingRaffle, setIsDrawingRaffle] = useState<Record<number, boolean>>({});
   const [drawingStatus, setDrawingStatus] = useState<Record<number, { success: boolean; msg: string } | null>>({});
+
+  // Bilateral Exchange Agreement State
+  const [partnerMerchant, setPartnerMerchant] = useState('');
+  const [rateAToB, setRateAToB] = useState(100);
+  const [rateBToA, setRateBToA] = useState(100);
+  const [exchangeAgreementStatus, setExchangeAgreementStatus] = useState<{ success: boolean; msg: string } | null>(null);
+  const [isSubmittingExchange, setIsSubmittingExchange] = useState(false);
+
+  const handleCreateOrUpdateExchangeAgreement = async () => {
+    if (!partnerMerchant.trim()) {
+      setExchangeAgreementStatus({ success: false, msg: 'Please enter a valid partner merchant public key.' });
+      return;
+    }
+
+    let partnerPubkey: PublicKey;
+    try {
+      partnerPubkey = new PublicKey(partnerMerchant.trim());
+    } catch (e) {
+      setExchangeAgreementStatus({ success: false, msg: 'Invalid partner merchant public key address.' });
+      return;
+    }
+
+    setIsSubmittingExchange(true);
+    setExchangeAgreementStatus({ success: true, msg: 'Broadcasting partnership agreement on-chain...' });
+
+    try {
+      const merchantKeypair = Keypair.fromSecretKey(new Uint8Array(profile.walletSecretKey));
+      
+      const tx = await initializeExchangeAgreement(
+        connection,
+        merchantKeypair,
+        partnerPubkey.toBase58(),
+        rateAToB,
+        rateBToA
+      );
+
+      setExchangeAgreementStatus({
+        success: true,
+        msg: `Agreement configured successfully! Tx: ${tx.slice(0, 10)}...`
+      });
+      setPartnerMerchant('');
+      setRateAToB(100);
+      setRateBToA(100);
+      await refreshBalance();
+    } catch (e: any) {
+      console.error(e);
+      setExchangeAgreementStatus({ success: false, msg: e.message || 'Failed to establish exchange agreement' });
+    } finally {
+      setIsSubmittingExchange(false);
+    }
+  };
 
   const loadMerchantRaffles = async () => {
     setLoadingMerchantRaffles(true);
@@ -1350,6 +1402,88 @@ function MerchantDashboard({
                     })}
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* PANEL FOR BILATERAL POINTS EXCHANGE PARTNERSHIPS */}
+            <div className="panel" style={{ marginTop: '24px' }}>
+              <div className="panel-header">
+                <h2 className="panel-title">
+                  🤝 Bilateral Points Exchange Manager
+                </h2>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  Set up a direct, bilateral points exchange partnership with another merchant. 
+                  Once configured on-chain, opted-in customers who hold active cards at both stores can swap points between your programs.
+                </p>
+
+                <div className="form-group">
+                  <label style={{ fontSize: '10.5px', display: 'block', marginBottom: '4px' }}>Partner Merchant Wallet Address (PublicKey)</label>
+                  <input 
+                    type="text" 
+                    placeholder="Enter partner merchant PublicKey..."
+                    className="input-glow mono" 
+                    style={{ width: '100%', padding: '10px', fontSize: '12px', background: 'var(--bg-input)', borderRadius: '8px', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                    value={partnerMerchant} 
+                    onChange={e => setPartnerMerchant(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div className="form-group">
+                    <label style={{ fontSize: '10.5px', display: 'block', marginBottom: '4px' }}>Your Points to Partner's (rate 100 = 1:1)</label>
+                    <input 
+                      type="number" 
+                      className="input-glow mono" 
+                      style={{ width: '100%', padding: '10px', fontSize: '12px', background: 'var(--bg-input)', borderRadius: '8px', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                      min="1"
+                      value={rateAToB} 
+                      onChange={e => setRateAToB(Number(e.target.value))}
+                    />
+                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
+                      Multiplier rate (e.g. 100 is 1:1, 150 is 1.5x, 50 is 0.5x).
+                    </span>
+                  </div>
+                  <div className="form-group">
+                    <label style={{ fontSize: '10.5px', display: 'block', marginBottom: '4px' }}>Partner's Points to Yours (rate 100 = 1:1)</label>
+                    <input 
+                      type="number" 
+                      className="input-glow mono" 
+                      style={{ width: '100%', padding: '10px', fontSize: '12px', background: 'var(--bg-input)', borderRadius: '8px', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                      min="1"
+                      value={rateBToA} 
+                      onChange={e => setRateBToA(Number(e.target.value))}
+                    />
+                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
+                      Reverse multiplier rate.
+                    </span>
+                  </div>
+                </div>
+
+                {exchangeAgreementStatus && (
+                  <div style={{
+                    padding: '10px',
+                    borderRadius: '8px',
+                    fontSize: '11px',
+                    border: exchangeAgreementStatus.success ? '1px solid rgba(20, 241, 149, 0.2)' : '1px solid rgba(239, 68, 68, 0.2)',
+                    background: exchangeAgreementStatus.success ? 'rgba(20, 241, 149, 0.02)' : 'rgba(239, 68, 68, 0.02)',
+                    color: exchangeAgreementStatus.success ? 'var(--color-primary)' : 'var(--color-secondary)',
+                    textAlign: 'center'
+                  }}>
+                    {exchangeAgreementStatus.msg}
+                  </div>
+                )}
+
+                <button 
+                  className="btn btn-accent btn-sm" 
+                  disabled={isSubmittingExchange}
+                  onClick={handleCreateOrUpdateExchangeAgreement}
+                  style={{ padding: '10px 16px', fontSize: '12px' }}
+                >
+                  {isSubmittingExchange ? 'Establishing Partnership...' : 'Initialize / Update Exchange Agreement'}
+                </button>
               </div>
             </div>
 

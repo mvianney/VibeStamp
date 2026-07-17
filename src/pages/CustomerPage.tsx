@@ -32,7 +32,6 @@ import {
   stakeBadgeForRaffle,
   getRaffles,
   getExchangeAgreement,
-  initializeExchangeAgreement,
   getPassportState,
   getPassportPda,
   type LoyaltyCard,
@@ -526,21 +525,9 @@ function CustomerMain({
       const customerKeypair = Keypair.fromSecretKey(new Uint8Array(profile.walletSecretKey));
       
       // Fetch bilateral exchange agreement on-chain.
-      // If it doesn't exist, we can automatically initialize it using the merchant's keypair from local storage
       const agreement = await getExchangeAgreement(connection, sourceCard.merchant, destCard.merchant);
-      if (!agreement) {
-        setExchangeStatus({ success: true, msg: 'Initializing on-chain exchange partnership agreement...' });
-        const savedMerchant = localStorage.getItem('vibestamp_merchant_profile');
-        if (savedMerchant) {
-          const merchantProfile = JSON.parse(savedMerchant);
-          if (merchantProfile.walletPublicKey === sourceCard.merchant) {
-            const mKeypair = Keypair.fromSecretKey(new Uint8Array(merchantProfile.walletSecretKey));
-            await initializeExchangeAgreement(connection, mKeypair, destCard.merchant, 1, 1);
-          } else if (merchantProfile.walletPublicKey === destCard.merchant) {
-            const mKeypair = Keypair.fromSecretKey(new Uint8Array(merchantProfile.walletSecretKey));
-            await initializeExchangeAgreement(connection, mKeypair, sourceCard.merchant, 1, 1);
-          }
-        }
+      if (!agreement || !agreement.active) {
+        throw new Error('No active points exchange agreement exists between these two merchants. A merchant must initialize it first.');
       }
 
       setExchangeStatus({ success: true, msg: 'Signing and executing points exchange...' });
