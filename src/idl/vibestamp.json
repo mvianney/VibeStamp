@@ -393,6 +393,59 @@
       ]
     },
     {
+      "name": "initialize_passport",
+      "discriminator": [
+        61,
+        77,
+        198,
+        139,
+        101,
+        90,
+        68,
+        137
+      ],
+      "accounts": [
+        {
+          "name": "passport",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  115,
+                  115,
+                  112,
+                  111,
+                  114,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "customer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "customer"
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "record_purchase",
       "discriminator": [
         107,
@@ -459,6 +512,31 @@
               {
                 "kind": "account",
                 "path": "merchant_signer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "passport",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  115,
+                  115,
+                  112,
+                  111,
+                  114,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "customer"
               }
             ]
           }
@@ -763,6 +841,19 @@
       ]
     },
     {
+      "name": "PassportState",
+      "discriminator": [
+        52,
+        119,
+        253,
+        5,
+        87,
+        212,
+        18,
+        39
+      ]
+    },
+    {
       "name": "Raffle",
       "discriminator": [
         143,
@@ -979,6 +1070,42 @@
           {
             "name": "total_volume_lamports",
             "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PassportState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "customer",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_stores_visited",
+            "type": "u32"
+          },
+          {
+            "name": "total_stamp_earned_lifetime",
+            "type": "u64"
+          },
+          {
+            "name": "total_badges_unlocked",
+            "type": "u32"
+          },
+          {
+            "name": "first_visit_timestamp",
+            "type": "i64"
+          },
+          {
+            "name": "last_updated",
+            "type": "i64"
           },
           {
             "name": "bump",

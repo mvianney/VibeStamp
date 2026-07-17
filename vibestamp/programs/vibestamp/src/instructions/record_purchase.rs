@@ -20,6 +20,15 @@ pub struct RecordPurchase<'info> {
     )]
     pub merchant_state: Account<'info, MerchantState>,
 
+    #[account(
+        init_if_needed,
+        payer = merchant_signer,
+        space = PassportState::SPACE,
+        seeds = [b"passport", customer.key().as_ref()],
+        bump
+    )]
+    pub passport: Account<'info, PassportState>,
+
     #[account(mut)]
     pub merchant_signer: Signer<'info>,
 
@@ -123,16 +132,37 @@ pub fn handler(ctx: Context<RecordPurchase>, amount_lamports: u64) -> Result<()>
     merchant.total_volume_lamports = merchant.total_volume_lamports.saturating_add(amount_lamports);
 
     // 7. Achievement Check
-    if card.total_purchases >= 1  { card.achievements[0] = true; } // First Step
-    if card.total_purchases >= 5  { card.achievements[1] = true; } // Stamp Collector
-    if card.total_purchases >= 10 { card.achievements[2] = true; } // Loyal Fan
-    if card.total_purchases >= 25 { card.achievements[3] = true; } // Super Fan
-    if card.streak_count >= 2     { card.achievements[4] = true; } // Streak Starter
-    if card.streak_count >= 4     { card.achievements[5] = true; } // Streak Master
-    if card.streak_count >= 8     { card.achievements[6] = true; } // Unstoppable
-    if card.tier == Tier::Silver  { card.achievements[7] = true; } // Silver Member
-    if card.tier == Tier::Gold    { card.achievements[8] = true; } // Gold Member
-    if amount_lamports >= 1_000_000_000 { card.achievements[9] = true; } // Big Spender
+    let mut new_badges = 0;
+    if card.total_purchases >= 1  && !card.achievements[0] { card.achievements[0] = true; new_badges += 1; } // First Step
+    if card.total_purchases >= 5  && !card.achievements[1] { card.achievements[1] = true; new_badges += 1; } // Stamp Collector
+    if card.total_purchases >= 10 && !card.achievements[2] { card.achievements[2] = true; new_badges += 1; } // Loyal Fan
+    if card.total_purchases >= 25 && !card.achievements[3] { card.achievements[3] = true; new_badges += 1; } // Super Fan
+    if card.streak_count >= 2     && !card.achievements[4] { card.achievements[4] = true; new_badges += 1; } // Streak Starter
+    if card.streak_count >= 4     && !card.achievements[5] { card.achievements[5] = true; new_badges += 1; } // Streak Master
+    if card.streak_count >= 8     && !card.achievements[6] { card.achievements[6] = true; new_badges += 1; } // Unstoppable
+    if card.tier == Tier::Silver  && !card.achievements[7] { card.achievements[7] = true; new_badges += 1; } // Silver Member
+    if card.tier == Tier::Gold    && !card.achievements[8] { card.achievements[8] = true; new_badges += 1; } // Gold Member
+    if amount_lamports >= 1_000_000_000 && !card.achievements[9] { card.achievements[9] = true; new_badges += 1; } // Big Spender
+
+    // 8. Update Passport stats
+    let passport = &mut ctx.accounts.passport;
+    if passport.customer == Pubkey::default() {
+        passport.customer = ctx.accounts.customer.key();
+        passport.total_stores_visited = 0;
+        passport.total_stamp_earned_lifetime = 0;
+        passport.total_badges_unlocked = 0;
+        passport.first_visit_timestamp = now;
+        passport.last_updated = now;
+        passport.bump = ctx.bumps.passport;
+    }
+
+    if is_new_customer {
+        passport.total_stores_visited = passport.total_stores_visited.saturating_add(1);
+    }
+    
+    passport.total_stamp_earned_lifetime = passport.total_stamp_earned_lifetime.saturating_add(total_earned);
+    passport.total_badges_unlocked = passport.total_badges_unlocked.saturating_add(new_badges);
+    passport.last_updated = now;
 
     Ok(())
 }

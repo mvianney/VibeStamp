@@ -33,9 +33,12 @@ import {
   getRaffles,
   getExchangeAgreement,
   initializeExchangeAgreement,
+  getPassportState,
+  getPassportPda,
   type LoyaltyCard,
   type MerchantState,
-  type RaffleState
+  type RaffleState,
+  type PassportState
 } from '../loyaltyHelper';
 import { simulatePayment } from '../solanaPayHelper';
 
@@ -170,6 +173,8 @@ function CustomerMain({
   const [cards, setCards] = useState<LoyaltyCard[]>([]);
   const [merchantStateMap, setMerchantStateMap] = useState<Record<string, MerchantState>>({});
   const [loadingCards, setLoadingCards] = useState(true);
+  const [passport, setPassport] = useState<PassportState | null>(null);
+  const [loadingPassport, setLoadingPassport] = useState(true);
 
   // QR Scanning camera state
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -230,6 +235,7 @@ function CustomerMain({
   const loadCustomerData = async () => {
     try {
       setLoadingCards(true);
+      setLoadingPassport(true);
       const list = await getCustomerLoyaltyCards(connection, profile.walletPublicKey);
       
       const mStates: Record<string, MerchantState> = {};
@@ -243,10 +249,14 @@ function CustomerMain({
       }
       setCards(list);
       setMerchantStateMap(mStates);
+
+      const pass = await getPassportState(connection, profile.walletPublicKey);
+      setPassport(pass);
     } catch (e) {
       console.error('Error loading loyalty data:', e);
     } finally {
       setLoadingCards(false);
+      setLoadingPassport(false);
     }
   };
 
@@ -380,10 +390,23 @@ function CustomerMain({
       const productNameClean = scannedUriData.message.replace('Purchase: ', '').trim();
       const autoMemo = `${profile.customerName} - ${productNameClean}`;
 
+      // Track customer transaction counts locally
+      const countsKey = `vibestamp_customer_tx_counts_${profile.walletPublicKey}`;
+      const counts = JSON.parse(localStorage.getItem(countsKey) || '{}');
+      let customerTxCount = counts[scannedUriData.recipient] || 0;
+      
       // Fetch the card state before transaction to track points earned
       const prevCard = await getLoyaltyCard(connection, scannedUriData.recipient, profile.walletPublicKey);
       const prevBalance = prevCard ? prevCard.stampBalance : 0;
       const prevPurchases = prevCard ? prevCard.totalPurchases : 0;
+
+      if (prevCard) {
+        customerTxCount = Math.max(customerTxCount, 3) + 1;
+      } else {
+        customerTxCount += 1;
+      }
+      counts[scannedUriData.recipient] = customerTxCount;
+      localStorage.setItem(countsKey, JSON.stringify(counts));
 
       const sig = await simulatePayment({
         connection,
@@ -398,30 +421,46 @@ function CustomerMain({
       });
 
       setTxSignature(sig);
-      setPayStatusText('Waiting for merchant to record reward on-chain...');
-
-      // Poll customer loyalty card PDA on-chain until total purchases count increments
+      
       let updatedCard = null;
-      for (let retries = 0; retries < 25; retries++) {
-        updatedCard = await getLoyaltyCard(connection, scannedUriData.recipient, profile.walletPublicKey);
-        if (updatedCard && updatedCard.totalPurchases > prevPurchases) {
-          break;
+      let pointsEarned = 0;
+      let newBalance = 0;
+      let tier: any = 'Bronze';
+
+      if (customerTxCount >= 3) {
+        setPayStatusText('Waiting for merchant to record reward on-chain...');
+
+        // Poll customer loyalty card PDA on-chain until total purchases count increments
+        for (let retries = 0; retries < 25; retries++) {
+          updatedCard = await getLoyaltyCard(connection, scannedUriData.recipient, profile.walletPublicKey);
+          if (updatedCard && updatedCard.totalPurchases > prevPurchases) {
+            break;
+          }
+          await new Promise(r => setTimeout(r, 2000));
         }
-        await new Promise(r => setTimeout(r, 2000));
-      }
 
-      if (!updatedCard || updatedCard.totalPurchases <= prevPurchases) {
-        throw new Error('Transaction verified, but reward state sync timed out. Please check your card later.');
-      }
+        if (!updatedCard || updatedCard.totalPurchases <= prevPurchases) {
+          throw new Error('Transaction verified, but reward state sync timed out. Please check your card later.');
+        }
 
-      const pointsEarned = updatedCard.stampBalance - prevBalance;
+        pointsEarned = updatedCard.stampBalance - prevBalance;
+        newBalance = updatedCard.stampBalance;
+        tier = updatedCard.tier;
+      } else {
+        // Pre-loyalty transaction
+        setPayStatusText('Confirming pre-loyalty checkout...');
+        await new Promise(r => setTimeout(r, 1000));
+        pointsEarned = 0;
+        newBalance = 0;
+        tier = 'Bronze';
+      }
 
       setReceiptData({
         pointsEarned,
         streakBonus: 0,
         tierBonus: 0,
-        newBalance: updatedCard.stampBalance,
-        tier: updatedCard.tier,
+        newBalance,
+        tier,
         memo: autoMemo
       });
 
@@ -974,96 +1013,113 @@ function CustomerMain({
         )}
 
         {/* PASSPORT TAB */}
-        {activeTab === 'passport' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)' }}>Your Loyalty Passport</h2>
-            
-            {/* Passport Stats Widgets */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
-              <div className="panel" style={{ padding: '16px 20px', textAlign: 'center', background: 'var(--bg-surface)' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Stores Visited</span>
-                <strong style={{ fontSize: '28px', color: 'var(--color-primary)', display: 'block', marginTop: '6px' }}>{cards.length}</strong>
-              </div>
-              <div className="panel" style={{ padding: '16px 20px', textAlign: 'center', background: 'var(--bg-surface)' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total STAMP Balance</span>
-                <strong style={{ fontSize: '28px', color: 'var(--color-accent)', display: 'block', marginTop: '6px' }}>
-                  {cards.reduce((sum, c) => sum + c.stampBalance, 0).toLocaleString()}
-                </strong>
-              </div>
-              <div className="panel" style={{ padding: '16px 20px', textAlign: 'center', background: 'var(--bg-surface)' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Ecosystem Visits</span>
-                <strong style={{ fontSize: '28px', color: 'var(--text-primary)', display: 'block', marginTop: '6px' }}>
-                  {cards.reduce((sum, c) => sum + c.totalPurchases, 0)}
-                </strong>
-              </div>
-              <div className="panel" style={{ padding: '16px 20px', textAlign: 'center', background: 'var(--bg-surface)' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>cNFT Badges Earned</span>
-                <strong style={{ fontSize: '28px', color: '#ffd700', display: 'block', marginTop: '6px' }}>
-                  {cards.reduce((sum, c) => sum + c.achievements.filter(Boolean).length, 0)} / {cards.length * 10}
-                </strong>
-              </div>
-            </div>
-
-            {/* Passport metadata panel */}
-            <div className="setup-panel" style={{ padding: '20px', background: 'rgba(20,241,149,0.03)', border: '1px solid rgba(20,241,149,0.1)', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ fontSize: '32px' }}>🛂</div>
-                <div>
-                  <h4 style={{ margin: 0, fontWeight: 700 }}>Ecosystem Passport PDA Verified</h4>
-                  <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    Your loyalty credentials are securely tied to your Solana wallet on-chain.
-                  </p>
-                </div>
-              </div>
-              <div className="network-badge" style={{ background: 'rgba(20,241,149,0.1)', color: 'var(--color-primary)' }}>
-                Active Passport
-              </div>
-            </div>
-
-            {/* Global Badge Gallery */}
-            <div className="panel" style={{ padding: '24px' }}>
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                <Shield size={18} style={{ color: 'var(--color-primary)' }} /> Ecosystem cNFT Badge Gallery
-              </h3>
-              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px' }}>
-                View all achievement badges issued to your customer wallet across the entire VibeStamp network.
-              </p>
-
-              {cards.length === 0 ? (
+        {activeTab === 'passport' && (() => {
+          const passportPda = getPassportPda(new PublicKey(profile.walletPublicKey)).toBase58();
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)' }}>Your Loyalty Passport</h2>
+              
+              {loadingPassport ? (
                 <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
-                  Unlock badges by completing store achievements!
+                  <RefreshCw size={24} className="spin" style={{ margin: '0 auto 12px auto' }} />
+                  Loading on-chain Passport State...
                 </div>
               ) : (
-                <div className="achievements-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
-                  {cards.flatMap(card => {
-                    const storeName = merchantStateMap[card.merchant]?.storeName || 'Store';
-                    return card.achievements.map((earned, idx) => {
-                      if (!earned) return null;
-                      const label = achievementLabels[idx];
-                      return (
-                        <div key={`${card.merchant}_${idx}`} className="achievement-badge earned" style={{ border: '1px solid rgba(20, 241, 149, 0.12)', background: 'rgba(20, 241, 149, 0.02)', padding: '16px', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <div className="achievement-icon" style={{ background: 'rgba(20, 241, 149, 0.08)', color: 'var(--color-primary)', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '4px' }}>
-                            <Trophy size={16} />
-                          </div>
-                          <div className="achievement-title" style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{label.title}</div>
-                          <div className="achievement-desc" style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{label.desc}</div>
-                          <div style={{ marginTop: '6px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-accent)', fontWeight: 600 }}>
-                            {storeName}
-                          </div>
-                        </div>
-                      );
-                    });
-                  }).filter(Boolean)}
-                  {cards.reduce((sum, c) => sum + c.achievements.filter(Boolean).length, 0) === 0 && (
-                    <div style={{ textAlign: 'center', gridColumn: '1 / -1', padding: '40px 0', color: 'var(--text-muted)', fontSize: '13px' }}>
-                      No badges unlocked yet. Keep scanning to earn achievements!
+                <>
+                  {/* Passport Stats Widgets */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+                    <div className="panel" style={{ padding: '16px 20px', textAlign: 'center', background: 'var(--bg-surface)' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Stores Visited</span>
+                      <strong style={{ fontSize: '28px', color: 'var(--color-primary)', display: 'block', marginTop: '6px' }}>
+                        {passport ? passport.totalStoresVisited : 0}
+                      </strong>
                     </div>
-                  )}
-                </div>
+                    <div className="panel" style={{ padding: '16px 20px', textAlign: 'center', background: 'var(--bg-surface)' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Lifetime STAMP Earned</span>
+                      <strong style={{ fontSize: '28px', color: 'var(--color-accent)', display: 'block', marginTop: '6px' }}>
+                        {passport ? passport.totalStampEarnedLifetime.toLocaleString() : 0}
+                      </strong>
+                    </div>
+                    <div className="panel" style={{ padding: '16px 20px', textAlign: 'center', background: 'var(--bg-surface)' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Badges Unlocked</span>
+                      <strong style={{ fontSize: '28px', color: '#ffd700', display: 'block', marginTop: '6px' }}>
+                        {passport ? passport.totalBadgesUnlocked : 0}
+                      </strong>
+                    </div>
+                    <div className="panel" style={{ padding: '16px 20px', textAlign: 'center', background: 'var(--bg-surface)' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Last Updated</span>
+                      <strong style={{ fontSize: '15px', color: 'var(--text-primary)', display: 'block', marginTop: '16px' }}>
+                        {passport && passport.lastUpdated > 0 ? new Date(passport.lastUpdated * 1000).toLocaleDateString() : 'N/A'}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* Passport metadata panel */}
+                  <div className="setup-panel" style={{ padding: '20px', background: 'rgba(20,241,149,0.03)', border: '1px solid rgba(20,241,149,0.1)', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ fontSize: '32px' }}>🛂</div>
+                      <div>
+                        <h4 style={{ margin: 0, fontWeight: 700 }}>Loyalty Passport</h4>
+                        <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          Your loyalty credentials are securely verified by a dedicated on-chain account.
+                        </p>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: 'var(--color-primary)' }} className="mono">
+                          PDA: <a href={`https://explorer.solana.com/address/${passportPda}?cluster=devnet`} target="_blank" rel="noreferrer" className="tx-link">{passportPda.slice(0, 8)}...{passportPda.slice(-8)}</a>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="network-badge" style={{ background: passport ? 'rgba(20, 241, 149, 0.1)' : 'rgba(255, 255, 255, 0.05)', color: passport ? 'var(--color-primary)' : 'var(--text-secondary)' }}>
+                      {passport ? 'Active Passport' : 'Inactive (Make 3 purchases at any store to activate)'}
+                    </div>
+                  </div>
+
+                  {/* Global Badge Gallery */}
+                  <div className="panel" style={{ padding: '24px' }}>
+                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                      <Shield size={18} style={{ color: 'var(--color-primary)' }} /> Ecosystem Achievement Badges
+                    </h3>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+                      View all achievement badges issued to your customer wallet across the entire VibeStamp network.
+                    </p>
+
+                    {cards.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
+                        Unlock badges by completing store achievements!
+                      </div>
+                    ) : (
+                      <div className="achievements-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
+                        {cards.flatMap(card => {
+                          const storeName = merchantStateMap[card.merchant]?.storeName || 'Store';
+                          return card.achievements.map((earned, idx) => {
+                            if (!earned) return null;
+                            const label = achievementLabels[idx];
+                            return (
+                              <div key={`${card.merchant}_${idx}`} className="achievement-badge earned" style={{ border: '1px solid rgba(20, 241, 149, 0.12)', background: 'rgba(20, 241, 149, 0.02)', padding: '16px', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <div className="achievement-icon" style={{ background: 'rgba(20, 241, 149, 0.08)', color: 'var(--color-primary)', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '4px' }}>
+                                  <Trophy size={16} />
+                                </div>
+                                <div className="achievement-title" style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{label.title}</div>
+                                <div className="achievement-desc" style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{label.desc}</div>
+                                <div style={{ marginTop: '6px', fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-accent)', fontWeight: 600 }}>
+                                  {storeName}
+                                </div>
+                              </div>
+                            );
+                          });
+                        }).filter(Boolean)}
+                        {cards.reduce((sum, c) => sum + c.achievements.filter(Boolean).length, 0) === 0 && (
+                          <div style={{ textAlign: 'center', gridColumn: '1 / -1', padding: '40px 0', color: 'var(--text-muted)', fontSize: '13px' }}>
+                            No badges unlocked yet. Keep scanning to earn achievements!
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* EXCHANGE TAB */}
         {activeTab === 'exchange' && (

@@ -49,6 +49,16 @@ export interface RaffleState {
   active: boolean;
 }
 
+export interface PassportState {
+  customer: string;
+  totalStoresVisited: number;
+  totalStampEarnedLifetime: number;
+  totalBadgesUnlocked: number;
+  firstVisitTimestamp: number;
+  lastUpdated: number;
+  bump: number;
+}
+
 // Helper to instantiate Anchor Program using client keypair
 const getProgram = (connection: Connection, walletKeypair?: Keypair): any => {
   const wallet = walletKeypair ? {
@@ -99,6 +109,13 @@ export const getRafflePda = (merchantOwner: PublicKey, raffleIndex: number): Pub
   buffer.writeBigUInt64LE(BigInt(raffleIndex));
   return PublicKey.findProgramAddressSync(
     [Buffer.from('raffle'), merchantOwner.toBuffer(), buffer],
+    PROGRAM_ID
+  )[0];
+};
+
+export const getPassportPda = (customer: PublicKey): PublicKey => {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('passport'), customer.toBuffer()],
     PROGRAM_ID
   )[0];
 };
@@ -256,6 +273,7 @@ export const recordPurchase = async (
     .accounts({
       loyaltyCard: cardPda,
       merchantState: merchantPda,
+      passport: getPassportPda(customerPublicKey),
       merchantSigner: merchantSignerKeypair.publicKey,
       customer: customerPublicKey,
       systemProgram: SystemProgram.programId,
@@ -525,4 +543,48 @@ export const getActualTxAmountLamports = async (
   const pre = tx.meta.preBalances[idx];
   const post = tx.meta.postBalances[idx];
   return post - pre; // Actual lamports received by the merchant
+};
+
+export const getPassportState = async (
+  connection: Connection,
+  customerPubkey: string
+): Promise<PassportState | null> => {
+  try {
+    const program = getProgram(connection);
+    const pda = getPassportPda(new PublicKey(customerPubkey));
+    const state: any = await program.account.passportState.fetch(pda);
+    return {
+      customer: state.customer.toBase58(),
+      totalStoresVisited: state.totalStoresVisited,
+      totalStampEarnedLifetime: state.totalStampEarnedLifetime.toNumber(),
+      totalBadgesUnlocked: state.totalBadgesUnlocked,
+      firstVisitTimestamp: state.firstVisitTimestamp.toNumber(),
+      lastUpdated: state.lastUpdated.toNumber(),
+      bump: state.bump,
+    };
+  } catch (e) {
+    return null;
+  }
+};
+
+export const initializePassport = async (
+  connection: Connection,
+  payerKeypair: Keypair,
+  customerPubkey: string
+): Promise<string> => {
+  const program = getProgram(connection, payerKeypair);
+  const customerPublicKey = new PublicKey(customerPubkey);
+  const pda = getPassportPda(customerPublicKey);
+  
+  const tx = await program.methods
+    .initializePassport()
+    .accounts({
+      passport: pda,
+      customer: customerPublicKey,
+      payer: payerKeypair.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .signers([payerKeypair])
+    .rpc();
+  return tx;
 };

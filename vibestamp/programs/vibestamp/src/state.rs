@@ -74,3 +74,19 @@ pub struct Raffle {
 impl Raffle {
     pub const SPACE: usize = 8 + 32 + 8 + 8 + 8 + (4 + MAX_RAFFLE_ENTRIES * 32) + (4 + MAX_RAFFLE_ENTRIES * 1) + 33 + 1 + 1;
 }
+
+#[account]
+pub struct PassportState {
+    pub customer: Pubkey,
+    pub total_stores_visited: u32,
+    pub total_stamp_earned_lifetime: u64,
+    pub total_badges_unlocked: u32,
+    pub first_visit_timestamp: i64,
+    pub last_updated: i64,
+    pub bump: u8,
+}
+
+impl PassportState {
+    pub const SPACE: usize = 8 + 32 + 4 + 8 + 4 + 8 + 8 + 1;
+}
+

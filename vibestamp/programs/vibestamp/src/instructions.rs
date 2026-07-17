@@ -7,6 +7,7 @@ pub mod exchange_points;
 pub mod create_raffle;
 pub mod stake_badge_for_raffle;
 pub mod draw_raffle;
+pub mod initialize_passport;
 
 pub use initialize_merchant::*;
 pub use update_merchant::*;
@@ -17,3 +18,4 @@ pub use exchange_points::*;
 pub use create_raffle::*;
 pub use stake_badge_for_raffle::*;
 pub use draw_raffle::*;
+pub use initialize_passport::*;

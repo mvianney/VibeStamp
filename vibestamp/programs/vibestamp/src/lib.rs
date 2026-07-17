@@ -72,4 +72,8 @@ pub mod vibestamp {
     pub fn draw_raffle(ctx: Context<DrawRaffle>) -> Result<()> {
         instructions::draw_raffle::handler(ctx)
     }
+
+    pub fn initialize_passport(ctx: Context<InitializePassport>) -> Result<()> {
+        instructions::initialize_passport::handler(ctx)
+    }
 }

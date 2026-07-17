@@ -600,36 +600,62 @@ function MerchantDashboard({
       const cardBefore = await getLoyaltyCard(connection, profile.walletPublicKey, sender);
       const prevBalance = cardBefore ? cardBefore.stampBalance : 0;
 
+      // Track customer transaction counts locally per merchant
+      const countsKey = `vibestamp_merchant_tx_counts_${profile.walletPublicKey}`;
+      const counts = JSON.parse(localStorage.getItem(countsKey) || '{}');
+      let customerTxCount = counts[sender] || 0;
+      if (cardBefore) {
+        customerTxCount = Math.max(customerTxCount, 3) + 1;
+      } else {
+        customerTxCount += 1;
+      }
+      counts[sender] = customerTxCount;
+      localStorage.setItem(countsKey, JSON.stringify(counts));
+
       // Find any other merchant card to pass as remaining account for referral bonus
       const customerCards = await getCustomerLoyaltyCards(connection, sender);
       const otherCard = customerCards.find(c => c.merchant !== profile.walletPublicKey && c.totalPurchases > 0);
       const otherCardPda = otherCard ? getLoyaltyCardPda(new PublicKey(otherCard.merchant), new PublicKey(sender)) : undefined;
 
-      // Call recordPurchase on-chain
-      await recordPurchase(
-        connection,
-        merchantKeypair,
-        sender,
-        lamports,
-        otherCardPda?.toBase58()
-      );
+      let pointsEarned = 0;
+      let newBalance = 0;
+      let tier = 'Bronze';
 
-      // Fetch updated card state
-      const card = await getLoyaltyCard(connection, profile.walletPublicKey, sender);
-      if (!card) throw new Error("Failed to fetch updated loyalty card from chain");
-      const pointsEarned = card.stampBalance - prevBalance;
-      const streakBonus = 0;
-      const tierBonus = 0;
+      if (customerTxCount >= 3) {
+        setSimConsole(prev => [...prev, { text: `Active customer transaction ${customerTxCount} - Executing on-chain loyalty check...`, type: 'info' }]);
+        
+        // Call recordPurchase on-chain
+        await recordPurchase(
+          connection,
+          merchantKeypair,
+          sender,
+          lamports,
+          otherCardPda?.toBase58()
+        );
+
+        // Fetch updated card state
+        const card = await getLoyaltyCard(connection, profile.walletPublicKey, sender);
+        if (!card) throw new Error("Failed to fetch updated loyalty card from chain");
+        pointsEarned = card.stampBalance - prevBalance;
+        newBalance = card.stampBalance;
+        tier = card.tier;
+      } else {
+        // Pre-loyalty transaction
+        pointsEarned = 0;
+        newBalance = 0;
+        tier = 'Bronze';
+        setSimConsole(prev => [...prev, { text: `Pre-loyalty checkout ${customerTxCount}/2 recorded locally for customer ${sender.slice(0, 8)}...`, type: 'info' }]);
+      }
 
       // Update receipts & trigger refresh
       setReceipt({
         customer: sender,
         amountPaid: lamports / LAMPORTS_PER_SOL,
         pointsEarned,
-        streakBonus,
-        tierBonus,
-        newBalance: card.stampBalance,
-        tier: card.tier,
+        streakBonus: 0,
+        tierBonus: 0,
+        newBalance,
+        tier,
         memo: extractedMemo
       });
 
