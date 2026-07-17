@@ -1,4 +1,9 @@
-import { Connection, PublicKey } from '@solana/web3.js';
+import { Connection, PublicKey, Keypair, Transaction, SystemProgram } from '@solana/web3.js';
+import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
+import idl from '../vibestamp/target/idl/vibestamp.json';
+
+// Deployed Program ID
+export const PROGRAM_ID = new PublicKey('2Y171N7NVjqtjguLHrNwXfA5w7yHW4hkJAbNySBw7pmQ');
 
 export type Tier = 'Bronze' | 'Silver' | 'Gold';
 
@@ -12,6 +17,7 @@ export interface LoyaltyCard {
   totalPurchases: number;
   totalSpentLamports: number;
   achievements: boolean[]; // 10 achievements
+  referralClaimed: boolean;
 }
 
 export interface MerchantState {
@@ -19,14 +25,484 @@ export interface MerchantState {
   storeName: string;
   pointRate: number;
   redemptionRate: number;
+  referralBonusStamp: number;
   totalCustomers: number;
   totalVolumeLamports: number;
 }
 
-/**
- * Reads the actual lamport amount from a confirmed transaction.
- * Authoritative on-chain query to ensure the merchant awards points based on the actual transfer.
- */
+export interface ExchangeAgreement {
+  merchantA: string;
+  merchantB: string;
+  rateAToB: number;
+  rateBToA: number;
+  active: boolean;
+}
+
+export interface RaffleState {
+  merchant: string;
+  raffleIndex: number;
+  prizeLamports: number;
+  closesAt: number;
+  stakedEntries: string[];
+  stakedBadges: number[];
+  winner: string | null;
+  active: boolean;
+}
+
+// Helper to instantiate Anchor Program using client keypair
+const getProgram = (connection: Connection, walletKeypair?: Keypair): any => {
+  const wallet = walletKeypair ? {
+    publicKey: walletKeypair.publicKey,
+    signTransaction: async (tx: Transaction) => {
+      tx.partialSign(walletKeypair);
+      return tx;
+    },
+    signAllTransactions: async (txs: Transaction[]) => {
+      txs.forEach(tx => tx.partialSign(walletKeypair));
+      return txs;
+    }
+  } : {
+    publicKey: PublicKey.default,
+    signTransaction: async (tx: Transaction) => tx,
+    signAllTransactions: async (txs: Transaction[]) => txs
+  };
+
+  const provider = new AnchorProvider(connection, wallet as any, { commitment: 'confirmed' });
+  return new Program(idl as any, provider);
+};
+
+// ─── PDA Derivation Helpers ──────────────────────────────────────────────────
+
+export const getMerchantStatePda = (merchantOwner: PublicKey): PublicKey => {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('merchant'), merchantOwner.toBuffer()],
+    PROGRAM_ID
+  )[0];
+};
+
+export const getLoyaltyCardPda = (merchantOwner: PublicKey, customer: PublicKey): PublicKey => {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('loyalty_card'), merchantOwner.toBuffer(), customer.toBuffer()],
+    PROGRAM_ID
+  )[0];
+};
+
+export const getExchangeAgreementPda = (merchantA: PublicKey, merchantB: PublicKey): PublicKey => {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('exchange'), merchantA.toBuffer(), merchantB.toBuffer()],
+    PROGRAM_ID
+  )[0];
+};
+
+export const getRafflePda = (merchantOwner: PublicKey, raffleIndex: number): PublicKey => {
+  const buffer = Buffer.alloc(8);
+  buffer.writeBigUInt64LE(BigInt(raffleIndex));
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from('raffle'), merchantOwner.toBuffer(), buffer],
+    PROGRAM_ID
+  )[0];
+};
+
+// ─── On-Chain RPC Methods ────────────────────────────────────────────────────
+
+export const getMerchantState = async (
+  connection: Connection,
+  merchantPubkey: string
+): Promise<MerchantState | null> => {
+  try {
+    const program = getProgram(connection);
+    const pda = getMerchantStatePda(new PublicKey(merchantPubkey));
+    const state: any = await program.account.merchantState.fetch(pda);
+    return {
+      owner: state.owner.toBase58(),
+      storeName: state.storeName,
+      pointRate: state.pointRate.toNumber(),
+      redemptionRate: state.redemptionRate.toNumber(),
+      referralBonusStamp: state.referralBonusStamp.toNumber(),
+      totalCustomers: state.totalCustomers,
+      totalVolumeLamports: state.totalVolumeLamports.toNumber(),
+    };
+  } catch (e) {
+    console.warn(`MerchantState account not found for ${merchantPubkey}:`, e);
+    return null;
+  }
+};
+
+export const initializeMerchantState = async (
+  connection: Connection,
+  signerKeypair: Keypair,
+  storeName: string,
+  pointRate: number,
+  redemptionRate: number,
+  referralBonusStamp: number
+): Promise<string> => {
+  const program = getProgram(connection, signerKeypair);
+  const pda = getMerchantStatePda(signerKeypair.publicKey);
+  
+  const tx = await program.methods
+    .initializeMerchant(storeName, new BN(pointRate), new BN(redemptionRate), new BN(referralBonusStamp))
+    .accounts({
+      merchantState: pda,
+      signer: signerKeypair.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .signers([signerKeypair])
+    .rpc();
+  return tx;
+};
+
+export const getLoyaltyCard = async (
+  connection: Connection,
+  merchantPubkey: string,
+  customerPubkey: string
+): Promise<LoyaltyCard | null> => {
+  try {
+    const program = getProgram(connection);
+    const pda = getLoyaltyCardPda(new PublicKey(merchantPubkey), new PublicKey(customerPubkey));
+    const card: any = await program.account.loyaltyCard.fetch(pda);
+    return {
+      merchant: card.merchant.toBase58(),
+      customer: card.customer.toBase58(),
+      stampBalance: card.stampBalance.toNumber(),
+      tier: card.tier.hasOwnProperty('gold') ? 'Gold' : card.tier.hasOwnProperty('silver') ? 'Silver' : 'Bronze',
+      streakCount: card.streakCount,
+      lastPurchaseTs: card.lastPurchaseTs.toNumber(),
+      totalPurchases: card.totalPurchases,
+      totalSpentLamports: card.totalSpentLamports.toNumber(),
+      achievements: card.achievements,
+      referralClaimed: card.referralClaimed,
+    };
+  } catch (e) {
+    return null;
+  }
+};
+
+export const getMerchantCustomers = async (
+  connection: Connection,
+  merchantPubkey: string
+): Promise<LoyaltyCard[]> => {
+  try {
+    const program = getProgram(connection);
+    // LoyaltyCard merchant field starts at offset 8 (discriminator is 8 bytes)
+    const list = await program.account.loyaltyCard.all([
+      { memcmp: { offset: 8, bytes: merchantPubkey } }
+    ]);
+    return list.map((item: any) => {
+      const card = item.account as any;
+      return {
+        merchant: card.merchant.toBase58(),
+        customer: card.customer.toBase58(),
+        stampBalance: card.stampBalance.toNumber(),
+        tier: card.tier.hasOwnProperty('gold') ? 'Gold' : card.tier.hasOwnProperty('silver') ? 'Silver' : 'Bronze',
+        streakCount: card.streakCount,
+        lastPurchaseTs: card.lastPurchaseTs.toNumber(),
+        totalPurchases: card.totalPurchases,
+        totalSpentLamports: card.totalSpentLamports.toNumber(),
+        achievements: card.achievements,
+        referralClaimed: card.referralClaimed,
+      };
+    }).sort((a: any, b: any) => b.lastPurchaseTs - a.lastPurchaseTs);
+  } catch (e) {
+    console.error('Error fetching merchant customers:', e);
+    return [];
+  }
+};
+
+export const getCustomerLoyaltyCards = async (
+  connection: Connection,
+  customerPubkey: string
+): Promise<LoyaltyCard[]> => {
+  try {
+    const program = getProgram(connection);
+    // LoyaltyCard customer field starts at offset 8 (discriminator) + 32 (merchant pubkey) = 40 bytes
+    const list = await program.account.loyaltyCard.all([
+      { memcmp: { offset: 40, bytes: customerPubkey } }
+    ]);
+    return list.map((item: any) => {
+      const card = item.account as any;
+      return {
+        merchant: card.merchant.toBase58(),
+        customer: card.customer.toBase58(),
+        stampBalance: card.stampBalance.toNumber(),
+        tier: card.tier.hasOwnProperty('gold') ? 'Gold' : card.tier.hasOwnProperty('silver') ? 'Silver' : 'Bronze',
+        streakCount: card.streakCount,
+        lastPurchaseTs: card.lastPurchaseTs.toNumber(),
+        totalPurchases: card.totalPurchases,
+        totalSpentLamports: card.totalSpentLamports.toNumber(),
+        achievements: card.achievements,
+        referralClaimed: card.referralClaimed,
+      };
+    }).sort((a: any, b: any) => b.lastPurchaseTs - a.lastPurchaseTs);
+  } catch (e) {
+    console.error('Error fetching customer loyalty cards:', e);
+    return [];
+  }
+};
+
+export const recordPurchase = async (
+  connection: Connection,
+  merchantSignerKeypair: Keypair,
+  customerPubkey: string,
+  amountLamports: number,
+  otherMerchantCardPubkey?: string
+): Promise<string> => {
+  const program = getProgram(connection, merchantSignerKeypair);
+  const customerPublicKey = new PublicKey(customerPubkey);
+  const cardPda = getLoyaltyCardPda(merchantSignerKeypair.publicKey, customerPublicKey);
+  const merchantPda = getMerchantStatePda(merchantSignerKeypair.publicKey);
+
+  const builder = program.methods
+    .recordPurchase(new BN(amountLamports))
+    .accounts({
+      loyaltyCard: cardPda,
+      merchantState: merchantPda,
+      merchantSigner: merchantSignerKeypair.publicKey,
+      customer: customerPublicKey,
+      systemProgram: SystemProgram.programId,
+    });
+
+  if (otherMerchantCardPubkey) {
+    builder.remainingAccounts([
+      {
+        pubkey: new PublicKey(otherMerchantCardPubkey),
+        isWritable: false,
+        isSigner: false,
+      }
+    ]);
+  }
+
+  const tx = await builder.signers([merchantSignerKeypair]).rpc();
+  return tx;
+};
+
+export const redeemPoints = async (
+  connection: Connection,
+  customerKeypair: Keypair,
+  merchantPubkey: string,
+  pointsToRedeem: number
+): Promise<string> => {
+  const program = getProgram(connection, customerKeypair);
+  const merchantPublicKey = new PublicKey(merchantPubkey);
+  const cardPda = getLoyaltyCardPda(merchantPublicKey, customerKeypair.publicKey);
+  const merchantPda = getMerchantStatePda(merchantPublicKey);
+
+  const tx = await program.methods
+    .redeemPoints(new BN(pointsToRedeem))
+    .accounts({
+      loyaltyCard: cardPda,
+      merchantState: merchantPda,
+      customer: customerKeypair.publicKey,
+    })
+    .signers([customerKeypair])
+    .rpc();
+  return tx;
+};
+
+export const updateMerchantRates = async (
+  connection: Connection,
+  merchantKeypair: Keypair,
+  pointRate: number,
+  redemptionRate: number,
+  referralBonusStamp: number
+): Promise<string> => {
+  const program = getProgram(connection, merchantKeypair);
+  const pda = getMerchantStatePda(merchantKeypair.publicKey);
+  const storeName = await storeNameFromStateOrParams(program, pda);
+
+  const tx = await program.methods
+    .updateMerchant(storeName, new BN(pointRate), new BN(redemptionRate), new BN(referralBonusStamp))
+    .accounts({
+      merchantState: pda,
+      owner: merchantKeypair.publicKey,
+    } as any)
+    .signers([merchantKeypair])
+    .rpc();
+  return tx;
+};
+
+const storeNameFromStateOrParams = async (program: any, pda: PublicKey): Promise<string> => {
+  try {
+    const s = await program.account.merchantState.fetch(pda);
+    return s.storeName;
+  } catch {
+    return "Store";
+  }
+};
+
+// ─── Points Exchange Agreement Methods ───────────────────────────────────────
+
+export const initializeExchangeAgreement = async (
+  connection: Connection,
+  merchantAKeypair: Keypair,
+  merchantBPubkey: string,
+  rateAToB: number,
+  rateBToA: number
+): Promise<string> => {
+  const program = getProgram(connection, merchantAKeypair);
+  const merchantBPublicKey = new PublicKey(merchantBPubkey);
+  const agreementPda = getExchangeAgreementPda(merchantAKeypair.publicKey, merchantBPublicKey);
+
+  const tx = await program.methods
+    .initializeExchangeAgreement(merchantBPublicKey, new BN(rateAToB), new BN(rateBToA))
+    .accounts({
+      exchangeAgreement: agreementPda,
+      merchantA: merchantAKeypair.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .signers([merchantAKeypair])
+    .rpc();
+  return tx;
+};
+
+export const getExchangeAgreement = async (
+  connection: Connection,
+  merchantAOwner: string,
+  merchantBOwner: string
+): Promise<ExchangeAgreement | null> => {
+  try {
+    const program = getProgram(connection);
+    const pda = getExchangeAgreementPda(new PublicKey(merchantAOwner), new PublicKey(merchantBOwner));
+    const agreement: any = await program.account.exchangeAgreement.fetch(pda);
+    return {
+      merchantA: agreement.merchantA.toBase58(),
+      merchantB: agreement.merchantB.toBase58(),
+      rateAToB: agreement.rateAToB.toNumber(),
+      rateBToA: agreement.rateBToA.toNumber(),
+      active: agreement.active,
+    };
+  } catch (e) {
+    return null;
+  }
+};
+
+export const exchangePoints = async (
+  connection: Connection,
+  customerKeypair: Keypair,
+  merchantAOwner: string,
+  merchantBOwner: string,
+  pointsToExchange: number
+): Promise<string> => {
+  const program = getProgram(connection, customerKeypair);
+  const merchantAPubkey = new PublicKey(merchantAOwner);
+  const merchantBPubkey = new PublicKey(merchantBOwner);
+
+  const cardAPda = getLoyaltyCardPda(merchantAPubkey, customerKeypair.publicKey);
+  const cardBPda = getLoyaltyCardPda(merchantBPubkey, customerKeypair.publicKey);
+  const agreementPda = getExchangeAgreementPda(merchantAPubkey, merchantBPubkey);
+
+  const tx = await program.methods
+    .exchangePoints(new BN(pointsToExchange))
+    .accounts({
+      loyaltyCardA: cardAPda,
+      loyaltyCardB: cardBPda,
+      exchangeAgreement: agreementPda,
+      customer: customerKeypair.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .signers([customerKeypair])
+    .rpc();
+  return tx;
+};
+
+// ─── Raffles Staking Methods ──────────────────────────────────────────────────
+
+export const createRaffle = async (
+  connection: Connection,
+  merchantKeypair: Keypair,
+  raffleIndex: number,
+  prizeLamports: number,
+  durationSeconds: number
+): Promise<string> => {
+  const program = getProgram(connection, merchantKeypair);
+  const rafflePda = getRafflePda(merchantKeypair.publicKey, raffleIndex);
+
+  const tx = await program.methods
+    .createRaffle(new BN(raffleIndex), new BN(prizeLamports), new BN(durationSeconds))
+    .accounts({
+      raffle: rafflePda,
+      merchant: merchantKeypair.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .signers([merchantKeypair])
+    .rpc();
+  return tx;
+};
+
+export const stakeBadgeForRaffle = async (
+  connection: Connection,
+  customerKeypair: Keypair,
+  merchantOwner: string,
+  raffleIndex: number,
+  badgeIndex: number
+): Promise<string> => {
+  const program = getProgram(connection, customerKeypair);
+  const merchantPublicKey = new PublicKey(merchantOwner);
+  const rafflePda = getRafflePda(merchantPublicKey, raffleIndex);
+  const cardPda = getLoyaltyCardPda(merchantPublicKey, customerKeypair.publicKey);
+
+  const tx = await program.methods
+    .stakeBadgeForRaffle(badgeIndex)
+    .accounts({
+      raffle: rafflePda,
+      loyaltyCard: cardPda,
+      customer: customerKeypair.publicKey,
+    })
+    .signers([customerKeypair])
+    .rpc();
+  return tx;
+};
+
+export const drawRaffle = async (
+  connection: Connection,
+  merchantKeypair: Keypair,
+  raffleIndex: number,
+  winnerPubkey: string
+): Promise<string> => {
+  const program = getProgram(connection, merchantKeypair);
+  const rafflePda = getRafflePda(merchantKeypair.publicKey, raffleIndex);
+
+  const tx = await program.methods
+    .drawRaffle()
+    .accounts({
+      raffle: rafflePda,
+      winner: new PublicKey(winnerPubkey),
+      merchant: merchantKeypair.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .signers([merchantKeypair])
+    .rpc();
+  return tx;
+};
+
+export const getRaffles = async (
+  connection: Connection,
+  merchantPubkey: string
+): Promise<RaffleState[]> => {
+  try {
+    const program = getProgram(connection);
+    // Raffle merchant field starts at offset 8
+    const list = await program.account.raffle.all([
+      { memcmp: { offset: 8, bytes: merchantPubkey } }
+    ]);
+    return list.map((item: any) => {
+      const r = item.account as any;
+      return {
+        merchant: r.merchant.toBase58(),
+        raffleIndex: r.raffleIndex.toNumber(),
+        prizeLamports: r.prizeLamports.toNumber(),
+        closesAt: r.closesAt.toNumber(),
+        stakedEntries: r.stakedEntries.map((e: any) => e.toBase58()),
+        stakedBadges: r.stakedBadges,
+        winner: r.winner ? r.winner.toBase58() : null,
+        active: r.active,
+      };
+    }).sort((a: any, b: any) => b.raffleIndex - a.raffleIndex);
+  } catch (e) {
+    console.error('Error fetching raffles:', e);
+    return [];
+  }
+};
+
 export const getActualTxAmountLamports = async (
   connection: Connection,
   txSignature: string,
@@ -50,316 +526,3 @@ export const getActualTxAmountLamports = async (
   const post = tx.meta.postBalances[idx];
   return post - pre; // Actual lamports received by the merchant
 };
-
-/**
- * SIMULATED ON-CHAIN OPERATIONS
- * Storing data in localStorage under 'vibestamp_sim_state' to enable interactive prototyping
- * until the Anchor program is deployed.
- */
-const getSimData = () => {
-  try {
-    const raw = localStorage.getItem('vibestamp_sim_state');
-    return raw ? JSON.parse(raw) : { merchants: {}, loyaltyCards: {} };
-  } catch {
-    return { merchants: {}, loyaltyCards: {} };
-  }
-};
-
-const saveSimData = (data: any) => {
-  localStorage.setItem('vibestamp_sim_state', JSON.stringify(data));
-};
-
-export const getMerchantState = async (merchantPubkey: string): Promise<MerchantState | null> => {
-  const data = getSimData();
-  const m = data.merchants[merchantPubkey];
-  if (!m) {
-    // If not in state, look in vibestamp_merchant_profile as a fallback
-    const savedProfile = localStorage.getItem('vibestamp_merchant_profile');
-    if (savedProfile) {
-      try {
-        const p = JSON.parse(savedProfile);
-        if (p.walletPublicKey === merchantPubkey) {
-          const newState: MerchantState = {
-            owner: p.walletPublicKey,
-            storeName: p.storeName,
-            pointRate: p.pointRate,
-            redemptionRate: p.redemptionRate,
-            totalCustomers: 0,
-            totalVolumeLamports: 0,
-          };
-          data.merchants[merchantPubkey] = newState;
-          saveSimData(data);
-          return newState;
-        }
-      } catch {}
-    }
-    return null;
-  }
-  return m;
-};
-
-export const initializeMerchantState = async (
-  merchantPubkey: string,
-  storeName: string,
-  pointRate: number,
-  redemptionRate: number
-): Promise<MerchantState> => {
-  const data = getSimData();
-  const newState: MerchantState = {
-    owner: merchantPubkey,
-    storeName,
-    pointRate,
-    redemptionRate,
-    totalCustomers: 0,
-    totalVolumeLamports: 0,
-  };
-  data.merchants[merchantPubkey] = newState;
-  saveSimData(data);
-  return newState;
-};
-
-export const getMerchantCustomers = async (merchantPubkey: string): Promise<LoyaltyCard[]> => {
-  const data = getSimData();
-  const cards: LoyaltyCard[] = [];
-  for (const key in data.loyaltyCards) {
-    const card = data.loyaltyCards[key];
-    if (card.merchant === merchantPubkey) {
-      cards.push(card);
-    }
-  }
-  return cards.sort((a, b) => b.lastPurchaseTs - a.lastPurchaseTs);
-};
-
-export const getLoyaltyCard = async (
-  merchantPubkey: string,
-  customerPubkey: string
-): Promise<LoyaltyCard | null> => {
-  const data = getSimData();
-  const key = `${merchantPubkey}_${customerPubkey}`;
-  return data.loyaltyCards[key] || null;
-};
-
-export const recordPurchase = async (
-  merchantPubkey: string,
-  customerPubkey: string,
-  amountLamports: number,
-  txSignature?: string
-): Promise<{ card: LoyaltyCard; pointsEarned: number; streakBonus: number; tierBonus: number }> => {
-  const data = getSimData();
-  const key = `${merchantPubkey}_${customerPubkey}`;
-  const now = Math.floor(Date.now() / 1000);
-
-  if (!data.processedSignatures) {
-    data.processedSignatures = {};
-  }
-
-  if (txSignature && data.processedSignatures[txSignature]) {
-    const cached = data.processedSignatures[txSignature];
-    const currentCard: LoyaltyCard = data.loyaltyCards[key] || {
-      merchant: merchantPubkey,
-      customer: customerPubkey,
-      stampBalance: 0,
-      tier: 'Bronze',
-      streakCount: 0,
-      lastPurchaseTs: 0,
-      totalPurchases: 0,
-      totalSpentLamports: 0,
-      achievements: Array(10).fill(false),
-    };
-    return {
-      card: currentCard,
-      pointsEarned: cached.pointsEarned,
-      streakBonus: cached.streakBonus,
-      tierBonus: cached.tierBonus,
-    };
-  }
-
-  // Fetch or init merchant
-  let merchant = data.merchants[merchantPubkey];
-  if (!merchant) {
-    // fallback initialization
-    merchant = {
-      owner: merchantPubkey,
-      storeName: 'Simulated Store',
-      pointRate: 10,
-      redemptionRate: 1000,
-      totalCustomers: 0,
-      totalVolumeLamports: 0,
-    };
-  }
-
-  // Fetch or init loyalty card
-  let card: LoyaltyCard = data.loyaltyCards[key];
-  const isNewCustomer = !card;
-
-  if (!card) {
-    card = {
-      merchant: merchantPubkey,
-      customer: customerPubkey,
-      stampBalance: 0,
-      tier: 'Bronze',
-      streakCount: 0,
-      lastPurchaseTs: 0,
-      totalPurchases: 0,
-      totalSpentLamports: 0,
-      achievements: Array(10).fill(false),
-    };
-  }
-
-  // 1. Streak Logic (A week = 7 days. Streak resets if gap > 14 days)
-  if (card.lastPurchaseTs > 0) {
-    const daysSinceLast = (now - card.lastPurchaseTs) / 86400;
-    if (daysSinceLast <= 7) {
-      card.streakCount = Math.min(255, card.streakCount + 1);
-    } else if (daysSinceLast > 14) {
-      card.streakCount = 0;
-    }
-  } else {
-    card.streakCount = 0;
-  }
-
-  // Streak bonus: 2 weeks = +25%, 4 weeks = +50%, 8 weeks = +100%
-  let streakMultiplier = 0; // percentage
-  if (card.streakCount >= 8) {
-    streakMultiplier = 100;
-  } else if (card.streakCount >= 4) {
-    streakMultiplier = 50;
-  } else if (card.streakCount >= 2) {
-    streakMultiplier = 25;
-  }
-
-  // 2. Point Calculations
-  let basePoints = 0;
-  let bonusPoints = 0;
-  let tierBonusPoints = 0;
-  let totalPointsEarned = 0;
-
-  if (card.totalPurchases + 1 >= 3) {
-    // Base rate: pointRate STAMP per 0.01 SOL (10,000,000 lamports)
-    basePoints = Math.floor(amountLamports / 10_000_000) * merchant.pointRate;
-    bonusPoints = Math.floor((basePoints * streakMultiplier) / 100);
-
-    // Tier bonus: Silver (+10%), Gold (+25%)
-    let tierMultiplier = 0;
-    if (card.tier === 'Silver') {
-      tierMultiplier = 10;
-    } else if (card.tier === 'Gold') {
-      tierMultiplier = 25;
-    }
-    tierBonusPoints = Math.floor((basePoints * tierMultiplier) / 100);
-    totalPointsEarned = basePoints + bonusPoints + tierBonusPoints;
-  }
-
-  // 3. Update Card Data
-  card.stampBalance += totalPointsEarned;
-  card.lastPurchaseTs = now;
-  card.totalPurchases += 1;
-  card.totalSpentLamports += amountLamports;
-
-  // 4. Tier updates
-  if (card.stampBalance >= 20000) {
-    card.tier = 'Gold';
-  } else if (card.stampBalance >= 5000) {
-    card.tier = 'Silver';
-  } else {
-    card.tier = 'Bronze';
-  }
-
-  // 5. Achievement Flags
-  if (card.totalPurchases >= 1) card.achievements[0] = true;
-  if (card.totalPurchases >= 5) card.achievements[1] = true;
-  if (card.totalPurchases >= 10) card.achievements[2] = true;
-  if (card.totalPurchases >= 25) card.achievements[3] = true;
-  if (card.streakCount >= 2) card.achievements[4] = true;
-  if (card.streakCount >= 4) card.achievements[5] = true;
-  if (card.streakCount >= 8) card.achievements[6] = true;
-  if (card.tier === 'Silver') card.achievements[7] = true;
-  if (card.tier === 'Gold') card.achievements[8] = true;
-  if (amountLamports >= 1_000_000_000) card.achievements[9] = true; // Big Spender (>=1 SOL)
-
-  // 6. Update Merchant Stats
-  if (isNewCustomer) {
-    merchant.totalCustomers += 1;
-  }
-  merchant.totalVolumeLamports += amountLamports;
-
-  if (txSignature) {
-    data.processedSignatures[txSignature] = {
-      pointsEarned: totalPointsEarned,
-      streakBonus: bonusPoints,
-      tierBonus: tierBonusPoints,
-      timestamp: now,
-    };
-  }
-
-  // Save state
-  data.merchants[merchantPubkey] = merchant;
-  data.loyaltyCards[key] = card;
-  saveSimData(data);
-
-  return {
-    card,
-    pointsEarned: totalPointsEarned,
-    streakBonus: bonusPoints,
-    tierBonus: tierBonusPoints,
-  };
-};
-
-export const redeemPoints = async (
-  merchantPubkey: string,
-  customerPubkey: string,
-  pointsToRedeem: number
-): Promise<LoyaltyCard> => {
-  const data = getSimData();
-  const key = `${merchantPubkey}_${customerPubkey}`;
-  const card: LoyaltyCard = data.loyaltyCards[key];
-  if (!card) {
-    throw new Error('Loyalty card not found');
-  }
-
-  if (card.stampBalance < pointsToRedeem) {
-    throw new Error('Insufficient points');
-  }
-
-  card.stampBalance -= pointsToRedeem;
-  data.loyaltyCards[key] = card;
-  saveSimData(data);
-  return card;
-};
-
-export const updateMerchantRates = async (
-  merchantPubkey: string,
-  pointRate: number,
-  redemptionRate: number
-): Promise<MerchantState> => {
-  const data = getSimData();
-  let merchant = data.merchants[merchantPubkey];
-  if (!merchant) {
-    merchant = {
-      owner: merchantPubkey,
-      storeName: 'Simulated Store',
-      pointRate: 10,
-      redemptionRate: 1000,
-      totalCustomers: 0,
-      totalVolumeLamports: 0,
-    };
-  }
-  merchant.pointRate = pointRate;
-  merchant.redemptionRate = redemptionRate;
-  data.merchants[merchantPubkey] = merchant;
-  saveSimData(data);
-  return merchant;
-};
-
-export const getCustomerLoyaltyCards = async (customerPubkey: string): Promise<LoyaltyCard[]> => {
-  const data = getSimData();
-  const cards: LoyaltyCard[] = [];
-  for (const key in data.loyaltyCards) {
-    const card = data.loyaltyCards[key];
-    if (card.customer === customerPubkey) {
-      cards.push(card);
-    }
-  }
-  return cards.sort((a, b) => b.lastPurchaseTs - a.lastPurchaseTs);
-};
-

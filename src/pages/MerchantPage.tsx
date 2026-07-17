@@ -21,6 +21,7 @@ export interface MerchantProfile {
   redemptionRate: number;  // STAMP per $1 discount — range [500, 5000]
   walletSecretKey: number[];
   walletPublicKey: string;
+  referralBonusStamp?: number;
 }
 
 // ─── One-time setup form ────────────────────────────────────────────────────
@@ -69,9 +70,18 @@ function MerchantSetup({ onComplete }: { onComplete: (p: MerchantProfile) => voi
           { signature: sig, blockhash, lastValidBlockHeight },
           'confirmed'
         );
+
+        // Call the on-chain initialization
+        await initializeMerchantState(
+          connectionRef.current,
+          keypair,
+          storeName.trim(),
+          clampedPointRate,
+          clampedRedemptionRate,
+          500 // default 500 referral bonus points
+        );
       } catch (e) {
-        // Silent fail — not critical for the frontend-only phase.
-        console.warn('Background airdrop skipped:', e);
+        console.warn('Background setup/airdrop failed:', e);
       }
     }
 
@@ -214,7 +224,15 @@ import {
   recordPurchase, 
   getActualTxAmountLamports,
   updateMerchantRates,
-  type LoyaltyCard
+  initializeMerchantState,
+  getLoyaltyCard,
+  getCustomerLoyaltyCards,
+  getLoyaltyCardPda,
+  createRaffle,
+  drawRaffle,
+  getRaffles,
+  type LoyaltyCard,
+  type RaffleState
 } from '../loyaltyHelper';
 import { buildSolanaPayUri, findReferenceTransaction, simulatePayment } from '../solanaPayHelper';
 
@@ -299,18 +317,46 @@ function MerchantDashboard({
   const [simPaying, setSimPaying] = useState(false);
   const [simConsole, setSimConsole] = useState<{ text: string; type: 'info' | 'success' | 'error' }[]>([]);
 
+  // Raffle Manager State
+  const [raffleIndexToCreate, setRaffleIndexToCreate] = useState<number>(1);
+  const [rafflePrizeToCreate, setRafflePrizeToCreate] = useState<number>(0.05);
+  const [raffleDurationToCreate] = useState<number>(300);
+  const [isCreatingRaffle, setIsCreatingRaffle] = useState(false);
+  const [createRaffleStatus, setCreateRaffleStatus] = useState<{ success: boolean; msg: string } | null>(null);
+  const [merchantRaffles, setMerchantRaffles] = useState<RaffleState[]>([]);
+  const [loadingMerchantRaffles, setLoadingMerchantRaffles] = useState(false);
+  const [isDrawingRaffle, setIsDrawingRaffle] = useState<Record<number, boolean>>({});
+  const [drawingStatus, setDrawingStatus] = useState<Record<number, { success: boolean; msg: string } | null>>({});
+
+  const loadMerchantRaffles = async () => {
+    setLoadingMerchantRaffles(true);
+    try {
+      const list = await getRaffles(connection, profile.walletPublicKey);
+      setMerchantRaffles(list);
+      if (list.length > 0) {
+        const maxIdx = Math.max(...list.map(r => r.raffleIndex));
+        setRaffleIndexToCreate(maxIdx + 1);
+      }
+    } catch (e) {
+      console.error('Failed to load merchant raffles:', e);
+    } finally {
+      setLoadingMerchantRaffles(false);
+    }
+  };
+
   // 1. Fetch dashboard data
   useEffect(() => {
     let active = true;
     async function loadData() {
       try {
         setLoadingStats(true);
-        const list = await getMerchantCustomers(profile.walletPublicKey);
+        const list = await getMerchantCustomers(connection, profile.walletPublicKey);
         const bal = await connection.getBalance(merchantPublicKey, 'confirmed');
         if (active) {
           setCustomers(list);
           setStoreBalance(bal / LAMPORTS_PER_SOL);
         }
+        await loadMerchantRaffles();
       } catch (err) {
         console.error('Error loading merchant dashboard data:', err);
       } finally {
@@ -327,7 +373,8 @@ function MerchantDashboard({
     setSavingSettings(true);
     try {
       // 1. Update simulated store rates in local database
-      await updateMerchantRates(profile.walletPublicKey, editPointRate, editRedemptionRate);
+      const merchantKeypair = Keypair.fromSecretKey(new Uint8Array(profile.walletSecretKey));
+      await updateMerchantRates(connection, merchantKeypair, editPointRate, editRedemptionRate, profile.referralBonusStamp || 500);
 
       // 2. Update persistent profile in localStorage and React state
       const updatedProfile = { 
@@ -515,13 +562,32 @@ function MerchantDashboard({
         console.warn('Failed to parse transaction memo:', e);
       }
 
-      // 4. Record purchase inside simulated state
-      const { card, pointsEarned, streakBonus, tierBonus } = await recordPurchase(
-        profile.walletPublicKey,
+      const merchantKeypair = Keypair.fromSecretKey(new Uint8Array(profile.walletSecretKey));
+      
+      // Fetch card state before purchase to calculate points earned
+      const cardBefore = await getLoyaltyCard(connection, profile.walletPublicKey, sender);
+      const prevBalance = cardBefore ? cardBefore.stampBalance : 0;
+
+      // Find any other merchant card to pass as remaining account for referral bonus
+      const customerCards = await getCustomerLoyaltyCards(connection, sender);
+      const otherCard = customerCards.find(c => c.merchant !== profile.walletPublicKey && c.totalPurchases > 0);
+      const otherCardPda = otherCard ? getLoyaltyCardPda(new PublicKey(otherCard.merchant), new PublicKey(sender)) : undefined;
+
+      // Call recordPurchase on-chain
+      await recordPurchase(
+        connection,
+        merchantKeypair,
         sender,
         lamports,
-        sig
+        otherCardPda?.toBase58()
       );
+
+      // Fetch updated card state
+      const card = await getLoyaltyCard(connection, profile.walletPublicKey, sender);
+      if (!card) throw new Error("Failed to fetch updated loyalty card from chain");
+      const pointsEarned = card.stampBalance - prevBalance;
+      const streakBonus = 0;
+      const tierBonus = 0;
 
       // Update receipts & trigger refresh
       setReceipt({
@@ -587,6 +653,90 @@ function MerchantDashboard({
       setSimConsole(prev => [...prev, { text: `Simulation error: ${err.message || err}`, type: 'error' }]);
     } finally {
       setSimPaying(false);
+    }
+  };
+
+  // Raffle Manager Handlers
+  const handleCreateRaffle = async () => {
+    setIsCreatingRaffle(true);
+    setCreateRaffleStatus({ success: true, msg: 'Initializing on-chain raffle and locking prize pool...' });
+
+    try {
+      const merchantKeypair = Keypair.fromSecretKey(new Uint8Array(profile.walletSecretKey));
+      const prizeLamports = Math.round(rafflePrizeToCreate * LAMPORTS_PER_SOL);
+      const tx = await createRaffle(
+        connection,
+        merchantKeypair,
+        raffleIndexToCreate,
+        prizeLamports,
+        raffleDurationToCreate
+      );
+      setCreateRaffleStatus({
+        success: true,
+        msg: `Raffle #${raffleIndexToCreate} created on-chain! Tx: ${tx.slice(0, 8)}...`
+      });
+      setRaffleIndexToCreate(prev => prev + 1);
+      loadMerchantRaffles();
+      const bal = await connection.getBalance(merchantPublicKey, 'confirmed');
+      setStoreBalance(bal / LAMPORTS_PER_SOL);
+    } catch (e: any) {
+      console.error(e);
+      setCreateRaffleStatus({ success: false, msg: e.message || 'Failed to create raffle' });
+    } finally {
+      setIsCreatingRaffle(false);
+    }
+  };
+
+  const handleDrawRaffle = async (raffleIndex: number, entries: string[]) => {
+    setIsDrawingRaffle(prev => ({ ...prev, [raffleIndex]: true }));
+    setDrawingStatus(prev => ({ ...prev, [raffleIndex]: { success: true, msg: 'Executing pseudo-random winner selection...' } }));
+
+    try {
+      const merchantKeypair = Keypair.fromSecretKey(new Uint8Array(profile.walletSecretKey));
+      let success = false;
+      let lastErr = '';
+
+      // Try up to 8 slots to find a winner match (since winner is slot % entries.len())
+      for (let attempt = 0; attempt < 8; attempt++) {
+        try {
+          const currentSlot = await connection.getSlot('confirmed');
+          const targetSlot = currentSlot + 2; // target slot prediction
+          const winnerIndex = targetSlot % entries.length;
+          const predictedWinner = entries[winnerIndex];
+
+          setDrawingStatus(prev => ({
+            ...prev,
+            [raffleIndex]: { success: true, msg: `Drawing winner for slot ${targetSlot} (Attempt ${attempt + 1}/8)...` }
+          }));
+
+          const tx = await drawRaffle(connection, merchantKeypair, raffleIndex, predictedWinner);
+          setDrawingStatus(prev => ({
+            ...prev,
+            [raffleIndex]: { success: true, msg: `Raffle drawn! Winner: ${predictedWinner.slice(0, 8)}... Tx: ${tx.slice(0, 8)}` }
+          }));
+          success = true;
+          break;
+        } catch (e: any) {
+          lastErr = e.message || e;
+          await new Promise(r => setTimeout(r, 400));
+        }
+      }
+
+      if (!success) {
+        throw new Error(`Draw reverted: ${lastErr}. Try drawing again.`);
+      }
+
+      loadMerchantRaffles();
+      const bal = await connection.getBalance(merchantPublicKey, 'confirmed');
+      setStoreBalance(bal / LAMPORTS_PER_SOL);
+    } catch (e: any) {
+      console.error(e);
+      setDrawingStatus(prev => ({
+        ...prev,
+        [raffleIndex]: { success: false, msg: e.message || 'Draw execution failed' }
+      }));
+    } finally {
+      setIsDrawingRaffle(prev => ({ ...prev, [raffleIndex]: false }));
     }
   };
 
@@ -966,6 +1116,141 @@ function MerchantDashboard({
 
                 </div>
               )}
+            </div>
+
+            {/* PANEL FOR RAFFLE MANAGER */}
+            <div className="panel" style={{ marginTop: '24px' }}>
+              <div className="panel-header">
+                <h2 className="panel-title">
+                  🎟️ Raffle Manager
+                </h2>
+                <button 
+                  onClick={loadMerchantRaffles} 
+                  className="btn btn-secondary btn-sm"
+                  disabled={loadingMerchantRaffles}
+                  style={{ minWidth: 'auto', padding: '6px 10px' }}
+                >
+                  <RefreshCw size={12} className={loadingMerchantRaffles ? 'animate-spin-slow' : ''} />
+                </button>
+              </div>
+
+              {/* Create Raffle Form */}
+              <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
+                <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Create New Raffle</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                  <div className="form-group">
+                    <label style={{ fontSize: '10px', display: 'block', marginBottom: '4px' }}>Raffle Index</label>
+                    <input 
+                      type="number" 
+                      className="input-glow mono" 
+                      style={{ width: '100%', padding: '8px', fontSize: '12px', background: 'var(--bg-input)', borderRadius: '8px', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                      value={raffleIndexToCreate} 
+                      onChange={e => setRaffleIndexToCreate(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label style={{ fontSize: '10px', display: 'block', marginBottom: '4px' }}>Prize (SOL)</label>
+                    <input 
+                      type="number" 
+                      className="input-glow mono" 
+                      style={{ width: '100%', padding: '8px', fontSize: '12px', background: 'var(--bg-input)', borderRadius: '8px', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                      step="0.01" 
+                      value={rafflePrizeToCreate} 
+                      onChange={e => setRafflePrizeToCreate(Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+
+                {createRaffleStatus && (
+                  <div style={{
+                    padding: '8px',
+                    borderRadius: '8px',
+                    fontSize: '11px',
+                    border: createRaffleStatus.success ? '1px solid rgba(20, 241, 149, 0.2)' : '1px solid rgba(239, 68, 68, 0.2)',
+                    background: createRaffleStatus.success ? 'rgba(20, 241, 149, 0.02)' : 'rgba(239, 68, 68, 0.02)',
+                    color: createRaffleStatus.success ? 'var(--color-primary)' : 'var(--color-secondary)',
+                    marginBottom: '12px',
+                    textAlign: 'center'
+                  }}>
+                    {createRaffleStatus.msg}
+                  </div>
+                )}
+
+                <button 
+                  className="btn btn-accent btn-sm" 
+                  style={{ width: '100%' }}
+                  disabled={isCreatingRaffle || rafflePrizeToCreate <= 0}
+                  onClick={handleCreateRaffle}
+                >
+                  {isCreatingRaffle ? 'Creating on-chain...' : 'Launch Raffle'}
+                </button>
+              </div>
+
+              {/* Active Raffles list */}
+              <div>
+                <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Raffles History</h4>
+                {loadingMerchantRaffles ? (
+                  <div style={{ textAlign: 'center', padding: '12px 0', color: 'var(--text-muted)' }}>
+                    Loading raffles...
+                  </div>
+                ) : merchantRaffles.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '12px 0', color: 'var(--text-muted)', fontSize: '12px' }}>
+                    No raffles created yet.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '280px', overflowY: 'auto' }}>
+                    {merchantRaffles.map((r, idx) => {
+                      const isClosed = Date.now() / 1000 >= r.closesAt || !r.active;
+                      return (
+                        <div key={idx} style={{ border: '1px solid var(--border-color)', borderRadius: '12px', padding: '12px', background: 'rgba(255,255,255,0.01)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
+                            <strong>Raffle #{r.raffleIndex}</strong>
+                            <span style={{ color: isClosed ? 'var(--text-muted)' : 'var(--color-primary)', fontWeight: 600 }}>
+                              {isClosed ? 'Closed' : 'Active'}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                            <span>Prize: <strong className="mono">{(r.prizeLamports / LAMPORTS_PER_SOL).toFixed(3)} SOL</strong></span>
+                            <span>Entries: <strong className="mono">{r.stakedEntries.length}</strong></span>
+                          </div>
+
+                          {drawingStatus[r.raffleIndex] && (
+                            <div style={{
+                              padding: '6px',
+                              borderRadius: '6px',
+                              fontSize: '10px',
+                              border: drawingStatus[r.raffleIndex]?.success ? '1px solid rgba(20, 241, 149, 0.2)' : '1px solid rgba(239, 68, 68, 0.2)',
+                              background: drawingStatus[r.raffleIndex]?.success ? 'rgba(20, 241, 149, 0.02)' : 'rgba(239, 68, 68, 0.02)',
+                              color: drawingStatus[r.raffleIndex]?.success ? 'var(--color-primary)' : 'var(--color-secondary)',
+                              textAlign: 'center'
+                            }}>
+                              {drawingStatus[r.raffleIndex]?.msg}
+                            </div>
+                          )}
+
+                          {r.active && (
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ width: '100%', padding: '6px', fontSize: '11px' }}
+                              disabled={isDrawingRaffle[r.raffleIndex] || r.stakedEntries.length === 0}
+                              onClick={() => handleDrawRaffle(r.raffleIndex, r.stakedEntries)}
+                            >
+                              {r.stakedEntries.length === 0 ? 'Waiting for entries' : isDrawingRaffle[r.raffleIndex] ? 'Drawing...' : 'Draw Winner'}
+                            </button>
+                          )}
+
+                          {r.winner && (
+                            <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)', padding: '6px', borderRadius: '6px', textAlign: 'center' }}>
+                              🏆 Winner: <strong className="mono" style={{ color: 'var(--color-accent)' }}>{r.winner.slice(0, 6)}...{r.winner.slice(-6)}</strong>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
 
           </div>
