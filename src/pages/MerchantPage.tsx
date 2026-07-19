@@ -672,6 +672,8 @@ function MerchantDashboard({
       let pointsEarned = 0;
       let newBalance = 0;
       let tier = 'Bronze';
+      let streakBonus = 0;
+      let tierBonus = 0;
 
       if (customerTxCount >= 3) {
         setSimConsole(prev => [...prev, { text: `Active customer transaction ${customerTxCount} - Executing on-chain loyalty check...`, type: 'info' }]);
@@ -691,6 +693,21 @@ function MerchantDashboard({
         pointsEarned = card.stampBalance - prevBalance;
         newBalance = card.stampBalance;
         tier = card.tier;
+
+        // Calculate bonuses based on formulas:
+        const basePoints = Math.floor(lamports / 10_000_000) * (profile.pointRate || 50);
+        
+        let streakBonusPercent = 0;
+        if (card.streakCount >= 8) streakBonusPercent = 100;
+        else if (card.streakCount >= 4) streakBonusPercent = 50;
+        else if (card.streakCount >= 2) streakBonusPercent = 25;
+        streakBonus = Math.floor(basePoints * streakBonusPercent / 100);
+
+        let tierBonusPercent = 0;
+        const prevTier = cardBefore ? cardBefore.tier : 'Bronze';
+        if (prevTier === 'Gold') tierBonusPercent = 25;
+        else if (prevTier === 'Silver') tierBonusPercent = 10;
+        tierBonus = Math.floor(basePoints * tierBonusPercent / 100);
       } else {
         // Pre-loyalty transaction
         pointsEarned = 0;
@@ -704,8 +721,8 @@ function MerchantDashboard({
         customer: sender,
         amountPaid: lamports / LAMPORTS_PER_SOL,
         pointsEarned,
-        streakBonus: 0,
-        tierBonus: 0,
+        streakBonus,
+        tierBonus,
         newBalance,
         tier,
         memo: extractedMemo
@@ -797,44 +814,18 @@ function MerchantDashboard({
     }
   };
 
-  const handleDrawRaffle = async (raffleIndex: number, entries: string[]) => {
+  const handleDrawRaffle = async (raffleIndex: number) => {
     setIsDrawingRaffle(prev => ({ ...prev, [raffleIndex]: true }));
-    setDrawingStatus(prev => ({ ...prev, [raffleIndex]: { success: true, msg: 'Executing pseudo-random winner selection...' } }));
+    setDrawingStatus(prev => ({ ...prev, [raffleIndex]: { success: true, msg: 'Drawing winner on-chain...' } }));
 
     try {
       const merchantKeypair = Keypair.fromSecretKey(new Uint8Array(profile.walletSecretKey));
-      let success = false;
-      let lastErr = '';
+      const tx = await drawRaffle(connection, merchantKeypair, raffleIndex);
 
-      // Try up to 8 slots to find a winner match (since winner is slot % entries.len())
-      for (let attempt = 0; attempt < 8; attempt++) {
-        try {
-          const currentSlot = await connection.getSlot('confirmed');
-          const targetSlot = currentSlot + 2; // target slot prediction
-          const winnerIndex = targetSlot % entries.length;
-          const predictedWinner = entries[winnerIndex];
-
-          setDrawingStatus(prev => ({
-            ...prev,
-            [raffleIndex]: { success: true, msg: `Drawing winner for slot ${targetSlot} (Attempt ${attempt + 1}/8)...` }
-          }));
-
-          const tx = await drawRaffle(connection, merchantKeypair, raffleIndex, predictedWinner);
-          setDrawingStatus(prev => ({
-            ...prev,
-            [raffleIndex]: { success: true, msg: `Raffle drawn! Winner: ${predictedWinner.slice(0, 8)}... Tx: ${tx.slice(0, 8)}` }
-          }));
-          success = true;
-          break;
-        } catch (e: any) {
-          lastErr = e.message || e;
-          await new Promise(r => setTimeout(r, 400));
-        }
-      }
-
-      if (!success) {
-        throw new Error(`Draw reverted: ${lastErr}. Try drawing again.`);
-      }
+      setDrawingStatus(prev => ({
+        ...prev,
+        [raffleIndex]: { success: true, msg: `Raffle drawn! Tx: ${tx.slice(0, 8)}...` }
+      }));
 
       loadMerchantRaffles();
       await refreshBalance();
@@ -1386,7 +1377,7 @@ function MerchantDashboard({
                               className="btn btn-secondary btn-sm"
                               style={{ width: '100%', padding: '6px', fontSize: '11px' }}
                               disabled={isDrawingRaffle[r.raffleIndex] || r.stakedEntries.length === 0}
-                              onClick={() => handleDrawRaffle(r.raffleIndex, r.stakedEntries)}
+                              onClick={() => handleDrawRaffle(r.raffleIndex)}
                             >
                               {r.stakedEntries.length === 0 ? 'Waiting for entries' : isDrawingRaffle[r.raffleIndex] ? 'Drawing...' : 'Draw Winner'}
                             </button>

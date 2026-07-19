@@ -55,6 +55,7 @@ pub fn handler(ctx: Context<RecordPurchase>, amount_lamports: u64) -> Result<()>
         card.total_spent_lamports = 0;
         card.achievements = [false; 10];
         card.referral_claimed = false;
+        card.staked_badge_raffle = None;
         card.bump = ctx.bumps.loyalty_card;
     }
 

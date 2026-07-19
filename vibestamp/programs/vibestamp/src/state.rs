@@ -35,11 +35,12 @@ pub struct LoyaltyCard {
     pub total_spent_lamports: u64,
     pub achievements: [bool; 10],
     pub referral_claimed: bool,
+    pub staked_badge_raffle: Option<Pubkey>,
     pub bump: u8,
 }
 
 impl LoyaltyCard {
-    pub const SPACE: usize = 8 + 32 + 32 + 8 + 1 + 1 + 8 + 4 + 8 + 10 + 1 + 1;
+    pub const SPACE: usize = 8 + 32 + 32 + 8 + 1 + 1 + 8 + 4 + 8 + 10 + 1 + 33 + 1;
 }
 
 #[account]

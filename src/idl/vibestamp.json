@@ -115,10 +115,6 @@
           }
         },
         {
-          "name": "winner",
-          "writable": true
-        },
-        {
           "name": "merchant",
           "writable": true,
           "signer": true
@@ -689,6 +685,7 @@
         },
         {
           "name": "loyalty_card",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -930,16 +927,21 @@
     },
     {
       "code": 6012,
+      "name": "BadgeCurrentlyStaked",
+      "msg": "Badge is already staked in another active raffle."
+    },
+    {
+      "code": 6013,
       "name": "NoStakerInRaffle",
       "msg": "No entries found in this raffle."
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "ReferralAlreadyClaimed",
       "msg": "Customer has already claimed a referral bonus at this store."
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "InvalidCustomerCard",
       "msg": "The provided card does not belong to this customer."
     }
@@ -1030,6 +1032,12 @@
           {
             "name": "referral_claimed",
             "type": "bool"
+          },
+          {
+            "name": "staked_badge_raffle",
+            "type": {
+              "option": "pubkey"
+            }
           },
           {
             "name": "bump",

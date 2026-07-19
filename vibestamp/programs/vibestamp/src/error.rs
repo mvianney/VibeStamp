@@ -26,6 +26,8 @@ pub enum LoyaltyError {
     BadgeNotUnlocked,
     #[msg("Selected achievement badge has already been staked in this raffle.")]
     BadgeAlreadyStaked,
+    #[msg("Badge is already staked in another active raffle.")]
+    BadgeCurrentlyStaked,
     #[msg("No entries found in this raffle.")]
     NoStakerInRaffle,
     #[msg("Customer has already claimed a referral bonus at this store.")]

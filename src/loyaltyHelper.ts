@@ -18,6 +18,7 @@ export interface LoyaltyCard {
   totalSpentLamports: number;
   achievements: boolean[]; // 10 achievements
   referralClaimed: boolean;
+  stakedBadgeRaffle: string | null;
 }
 
 export interface MerchantState {
@@ -188,6 +189,7 @@ export const getLoyaltyCard = async (
       totalSpentLamports: card.totalSpentLamports.toNumber(),
       achievements: card.achievements,
       referralClaimed: card.referralClaimed,
+      stakedBadgeRaffle: card.stakedBadgeRaffle ? card.stakedBadgeRaffle.toBase58() : null,
     };
   } catch (e) {
     return null;
@@ -217,6 +219,7 @@ export const getMerchantCustomers = async (
         totalSpentLamports: card.totalSpentLamports.toNumber(),
         achievements: card.achievements,
         referralClaimed: card.referralClaimed,
+        stakedBadgeRaffle: card.stakedBadgeRaffle ? card.stakedBadgeRaffle.toBase58() : null,
       };
     }).sort((a: any, b: any) => b.lastPurchaseTs - a.lastPurchaseTs);
   } catch (e) {
@@ -248,6 +251,7 @@ export const getCustomerLoyaltyCards = async (
         totalSpentLamports: card.totalSpentLamports.toNumber(),
         achievements: card.achievements,
         referralClaimed: card.referralClaimed,
+        stakedBadgeRaffle: card.stakedBadgeRaffle ? card.stakedBadgeRaffle.toBase58() : null,
       };
     }).sort((a: any, b: any) => b.lastPurchaseTs - a.lastPurchaseTs);
   } catch (e) {
@@ -473,20 +477,39 @@ export const stakeBadgeForRaffle = async (
 export const drawRaffle = async (
   connection: Connection,
   merchantKeypair: Keypair,
-  raffleIndex: number,
-  winnerPubkey: string
+  raffleIndex: number
 ): Promise<string> => {
   const program = getProgram(connection, merchantKeypair);
   const rafflePda = getRafflePda(merchantKeypair.publicKey, raffleIndex);
+
+  // Fetch raffle to get staked entries for remaining accounts
+  const raffle: any = await program.account.raffle.fetch(rafflePda);
+  const stakedEntries: PublicKey[] = raffle.stakedEntries;
+
+  // Get unique stakers (preserving PublicKey objects)
+  const uniqueStakerMap = new Map<string, PublicKey>();
+  for (const entry of stakedEntries) {
+    uniqueStakerMap.set(entry.toBase58(), entry);
+  }
+  const uniqueStakers = [...uniqueStakerMap.values()];
+
+  // Build remaining accounts: [wallet_0, card_0, wallet_1, card_1, ...]
+  const remainingAccounts = uniqueStakers.flatMap((staker: PublicKey) => {
+    const cardPda = getLoyaltyCardPda(merchantKeypair.publicKey, staker);
+    return [
+      { pubkey: staker, isWritable: true, isSigner: false },
+      { pubkey: cardPda, isWritable: true, isSigner: false },
+    ];
+  });
 
   const tx = await program.methods
     .drawRaffle()
     .accounts({
       raffle: rafflePda,
-      winner: new PublicKey(winnerPubkey),
       merchant: merchantKeypair.publicKey,
       systemProgram: SystemProgram.programId,
     })
+    .remainingAccounts(remainingAccounts)
     .signers([merchantKeypair])
     .rpc();
   return tx;
