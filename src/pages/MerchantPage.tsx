@@ -232,6 +232,7 @@ import {
   drawRaffle,
   getRaffles,
   initializeExchangeAgreement,
+  getMerchantState,
   type LoyaltyCard,
   type RaffleState
 } from '../loyaltyHelper';
@@ -399,6 +400,8 @@ function MerchantDashboard({
   };
 
   // Load merchant SOL balance
+  const [isAirdropping, setIsAirdropping] = useState(false);
+
   const refreshBalance = async () => {
     setLoadingBalance(true);
     setBalanceError(null);
@@ -413,6 +416,40 @@ function MerchantDashboard({
     }
   };
 
+  const handleMerchantAirdrop = async () => {
+    if (isAirdropping) return;
+    setIsAirdropping(true);
+    console.log('Requesting 2 SOL airdrop from Devnet faucet for store...');
+    try {
+      const sig = await connection.requestAirdrop(merchantPublicKey, 2 * LAMPORTS_PER_SOL);
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+      console.log('Airdrop confirmed! 2 SOL added.');
+      await refreshBalance();
+
+      // Check and auto-initialize merchant state if not initialized yet
+      const mState = await getMerchantState(connection, profile.walletPublicKey);
+      if (!mState) {
+        console.log('Initializing merchant state on-chain...');
+        const merchantKeypair = Keypair.fromSecretKey(new Uint8Array(profile.walletSecretKey));
+        await initializeMerchantState(
+          connection,
+          merchantKeypair,
+          profile.storeName,
+          profile.pointRate,
+          profile.redemptionRate,
+          500
+        );
+        console.log('Merchant state successfully initialized on-chain!');
+      }
+    } catch (e: any) {
+      console.error('Airdrop/initialization failed:', e);
+      alert(`Airdrop rate limit hit or faucet empty: ${e.message || e}. Try again in 30 seconds.`);
+    } finally {
+      setIsAirdropping(false);
+    }
+  };
+
   // 1. Fetch dashboard data
   useEffect(() => {
     let active = true;
@@ -424,11 +461,50 @@ function MerchantDashboard({
         // Load balance
         setLoadingBalance(true);
         setBalanceError(null);
-        const bal = await connection.getBalance(merchantPublicKey, 'confirmed');
+        let bal = await connection.getBalance(merchantPublicKey, 'confirmed');
+        let sol = bal / LAMPORTS_PER_SOL;
         if (active) {
-          setStoreBalance(bal / LAMPORTS_PER_SOL);
+          setStoreBalance(sol);
           setCustomers(list);
           setLoadingBalance(false);
+        }
+
+        // Auto-airdrop check on mount for merchant
+        if (sol < 0.1) {
+          try {
+            const sig = await connection.requestAirdrop(merchantPublicKey, 2 * LAMPORTS_PER_SOL);
+            const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+            await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+            const finalBal = await connection.getBalance(merchantPublicKey, 'confirmed');
+            sol = finalBal / LAMPORTS_PER_SOL;
+            if (active) {
+              setStoreBalance(sol);
+            }
+          } catch (e) {
+            console.warn('Mount auto-airdrop failed:', e);
+          }
+        }
+
+        // Auto-initialize check on mount
+        if (sol >= 0.02) {
+          const mState = await getMerchantState(connection, profile.walletPublicKey);
+          if (!mState) {
+            try {
+              console.log('Mount auto-initializing merchant state...');
+              const merchantKeypair = Keypair.fromSecretKey(new Uint8Array(profile.walletSecretKey));
+              await initializeMerchantState(
+                connection,
+                merchantKeypair,
+                profile.storeName,
+                profile.pointRate,
+                profile.redemptionRate,
+                500
+              );
+              console.log('Successfully auto-initialized merchant state on-chain!');
+            } catch (initErr) {
+              console.warn('Mount auto-initialization failed:', initErr);
+            }
+          }
         }
         
         await loadMerchantRaffles();
@@ -961,7 +1037,30 @@ function MerchantDashboard({
                   </button>
                 </div>
               ) : (
-                <span className="stat-value">{storeBalance.toFixed(4)} SOL</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: '8px' }}>
+                  <span className="stat-value">{storeBalance.toFixed(4)} SOL</span>
+                  {storeBalance < 1.0 && (
+                    <button
+                      onClick={handleMerchantAirdrop}
+                      disabled={isAirdropping}
+                      style={{
+                        background: 'rgba(20,241,149,0.08)',
+                        border: '1px solid rgba(20,241,149,0.2)',
+                        borderRadius: '4px',
+                        color: 'var(--color-primary)',
+                        fontSize: '11px',
+                        padding: '2px 8px',
+                        cursor: isAirdropping ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <RefreshCw size={10} className={isAirdropping ? "spin" : ""} style={{ animation: isAirdropping ? 'spin 1s linear infinite' : 'none' }} />
+                      {isAirdropping ? 'Airdropping...' : 'Airdrop 2 SOL'}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -1030,7 +1129,7 @@ function MerchantDashboard({
             <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '20px' }}>
               Updating these parameters will modify the values on-chain for the MerchantState PDA. Customers will immediately start earning and redeeming points under the new rates.
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+            <div className="responsive-grid-1-1" style={{ gap: '24px' }}>
               {/* Point Rate */}
               <div className="form-group">
                 <label>
@@ -1280,7 +1379,7 @@ function MerchantDashboard({
               {/* Create Raffle Form */}
               <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
                 <h4 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Create New Raffle</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                <div className="responsive-grid-1-1" style={{ gap: '12px', marginBottom: '12px' }}>
                   <div className="form-group">
                     <label style={{ fontSize: '10px', display: 'block', marginBottom: '4px' }}>Raffle Index</label>
                     <input 
@@ -1422,7 +1521,7 @@ function MerchantDashboard({
                   />
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div className="responsive-grid-1-1" style={{ gap: '16px' }}>
                   <div className="form-group">
                     <label style={{ fontSize: '10.5px', display: 'block', marginBottom: '4px' }}>Your Points to Partner's (rate 100 = 1:1)</label>
                     <input 

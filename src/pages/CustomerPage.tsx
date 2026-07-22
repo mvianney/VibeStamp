@@ -13,7 +13,6 @@ import {
   ExternalLink, 
   AlertTriangle, 
   CheckCircle, 
-  Wallet, 
   Coins, 
   Award, 
   Trophy, 
@@ -217,6 +216,8 @@ function CustomerMain({
   const [stakingStatus, setStakingStatus] = useState<Record<number, { success: boolean; msg: string } | null>>({});
 
   // Load customer stats
+  const [isAirdropping, setIsAirdropping] = useState(false);
+
   const refreshBalance = async () => {
     setLoadingBalance(true);
     setBalanceError(null);
@@ -228,6 +229,26 @@ function CustomerMain({
       setBalanceError(e.message || 'Failed to fetch balance');
     } finally {
       setLoadingBalance(false);
+    }
+  };
+
+  const handleAirdrop = async () => {
+    if (isAirdropping) return;
+    setIsAirdropping(true);
+    // Add message to local console
+    console.log('Requesting 2 SOL airdrop from Devnet faucet...');
+    try {
+      const pubkey = new PublicKey(profile.walletPublicKey);
+      const sig = await connection.requestAirdrop(pubkey, 2 * LAMPORTS_PER_SOL);
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+      console.log('Airdrop confirmed! 2 SOL added.');
+      await refreshBalance();
+    } catch (e: any) {
+      console.error('Airdrop failed:', e);
+      alert(`Airdrop rate limit hit or faucet empty: ${e.message || e}. Try again in 30 seconds.`);
+    } finally {
+      setIsAirdropping(false);
     }
   };
 
@@ -685,10 +706,10 @@ function CustomerMain({
       </header>
 
       {/* CUSTOMER PROFILE ROW */}
-      <div className="profile-banner-wrap" style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '20px', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '16px 24px', marginBottom: '24px', alignItems: 'center' }}>
+      <div className="profile-banner-wrap">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <span style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>YOUR CUSTOMER WALLET</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <span className="mono" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
               {profile.walletPublicKey.slice(0, 8)}...{profile.walletPublicKey.slice(-8)}
             </span>
@@ -711,8 +732,8 @@ function CustomerMain({
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center' }}>
+        <div className="profile-banner-right">
+          <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center' }} className="mobile-center-align">
             <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
               Wallet Balance
               <button
@@ -738,7 +759,7 @@ function CustomerMain({
             {loadingBalance ? (
               <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontStyle: 'italic', height: '28px', display: 'flex', alignItems: 'center' }}>Loading...</span>
             ) : balanceError ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }} className="mobile-center-align">
                 <span style={{ fontSize: '11px', color: 'var(--color-secondary)' }}>Error fetching balance</span>
                 <button
                   onClick={refreshBalance}
@@ -764,14 +785,21 @@ function CustomerMain({
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
             <button 
               className="btn btn-secondary"
-              disabled={true}
-              style={{ padding: '10px 14px', opacity: 0.75, cursor: 'not-allowed', pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)' }}
+              onClick={handleAirdrop}
+              disabled={isAirdropping}
+              style={{ 
+                padding: '10px 14px', 
+                border: '1px solid rgba(20,241,149,0.2)', 
+                background: 'rgba(20,241,149,0.04)', 
+                color: 'var(--color-primary)',
+                cursor: isAirdropping ? 'not-allowed' : 'pointer'
+              }}
             >
-              <Wallet size={14} />
-              <span style={{ marginLeft: '6px' }}>Fund Wallet</span>
+              <RefreshCw size={14} className={isAirdropping ? "spin" : ""} style={{ animation: isAirdropping ? 'spin 1s linear infinite' : 'none', marginRight: '6px' }} />
+              <span>{isAirdropping ? 'Airdropping...' : 'Airdrop 2 SOL'}</span>
             </button>
-            <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'lowercase', letterSpacing: '0.5px' }}>
-              mainnet version only
+            <span style={{ fontSize: '10px', color: 'var(--color-primary)', textTransform: 'lowercase', letterSpacing: '0.5px' }}>
+              solana devnet faucet
             </span>
           </div>
         </div>
@@ -979,7 +1007,7 @@ function CustomerMain({
                     </div>
                   ) : (
                     <div className="scanner-viewport" style={{ margin: '0 auto', width: '100%', maxWidth: '320px' }}>
-                      <video ref={videoRef} className="scanner-video" style={{ width: '100%', borderRadius: '16px', transform: 'scaleX(-1)' }} />
+                      <video ref={videoRef} className="scanner-video" style={{ width: '100%', borderRadius: '16px' }} />
                       <div className="scanner-overlay-box">
                         <div className="scanner-target-corners" />
                         <div className="scanner-laser" />
@@ -1651,7 +1679,7 @@ function CustomerMain({
                 </h3>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '24px', alignItems: 'flex-start' }}>
+              <div className="responsive-grid-1-2" style={{ gap: '24px', alignItems: 'flex-start' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
                     Redeem your STAMP points to get instant discount vouchers at this store. Point conversions are governed by the merchant's on-chain rates.

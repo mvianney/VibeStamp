@@ -1681,4 +1681,75 @@
   margin-top: 8px;
 }
 
+/* ============================================================
+   VIBESTAMP — Mobile Responsiveness Tweaks
+   ============================================================ */
+
+.profile-banner-wrap {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 16px 24px;
+  margin-bottom: 24px;
+  align-items: center;
+}
+
+.profile-banner-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.responsive-grid-1-2 {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+}
+
+.responsive-grid-1-1 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+@media (max-width: 768px) {
+  .app-header {
+    flex-direction: column;
+    gap: 16px;
+    align-items: stretch;
+    text-align: center;
+    padding: 16px;
+  }
+  .brand {
+    justify-content: center;
+  }
+  .header-actions {
+    justify-content: center;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .profile-banner-wrap {
+    grid-template-columns: 1fr;
+    text-align: center;
+    justify-items: center;
+    gap: 16px;
+    padding: 20px 16px;
+  }
+  .profile-banner-right {
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+  }
+  .mobile-center-align {
+    align-items: center !important;
+    text-align: center !important;
+  }
+  .responsive-grid-1-2,
+  .responsive-grid-1-1 {
+    grid-template-columns: 1fr;
+  }
+}
+
 
