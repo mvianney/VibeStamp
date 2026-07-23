@@ -311,6 +311,50 @@ function MerchantDashboard({
   const [simPaying, setSimPaying] = useState(false);
   const [simConsole, setSimConsole] = useState<{ text: string; type: 'info' | 'success' | 'error' }[]>([]);
 
+  // Helper to build a unified list of both on-chain and pre-loyalty (localStorage-only) customers
+  const getUnifiedCustomers = (): any[] => {
+    const countsKey = `vibestamp_merchant_tx_counts_${profile.walletPublicKey}`;
+    let localCounts: Record<string, number> = {};
+    try {
+      localCounts = JSON.parse(localStorage.getItem(countsKey) || '{}');
+    } catch (e) {
+      console.error(e);
+    }
+
+    const unifiedMap: Record<string, any> = {};
+
+    // 1. Populate from on-chain cards
+    for (const card of customers) {
+      unifiedMap[card.customer] = {
+        customer: card.customer,
+        tier: card.tier,
+        stampBalance: card.stampBalance,
+        streakCount: card.streakCount,
+        totalPurchases: card.totalPurchases,
+        lastPurchaseTs: card.lastPurchaseTs
+      };
+    }
+
+    // 2. Merge/add local pre-loyalty counts
+    for (const [address, count] of Object.entries(localCounts)) {
+      if (!unifiedMap[address]) {
+        unifiedMap[address] = {
+          customer: address,
+          tier: 'Bronze',
+          stampBalance: 0,
+          streakCount: 0,
+          totalPurchases: count,
+          lastPurchaseTs: 0
+        };
+      } else {
+        // Keep higher total purchases
+        unifiedMap[address].totalPurchases = Math.max(unifiedMap[address].totalPurchases, count);
+      }
+    }
+
+    return Object.values(unifiedMap);
+  };
+
   // Raffle Manager State
   const [raffleIndexToCreate, setRaffleIndexToCreate] = useState<number>(1);
   const [rafflePrizeToCreate, setRafflePrizeToCreate] = useState<number>(0.05);
@@ -1007,7 +1051,7 @@ function MerchantDashboard({
             <div className="stat-icon"><Users size={20} /></div>
             <div className="stat-info">
               <span className="stat-label">Total Customers gained by the store</span>
-              <span className="stat-value">{loadingStats ? '...' : customers.length}</span>
+              <span className="stat-value">{loadingStats ? '...' : getUnifiedCustomers().length}</span>
             </div>
           </div>
           <div className="stat-card">
@@ -1144,7 +1188,7 @@ function MerchantDashboard({
               <h2 className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Users size={20} /> Loyalty Directory
                 <span className="network-badge" style={{ fontSize: '11px', background: 'rgba(255, 215, 0, 0.08)', border: '1px solid rgba(255, 215, 0, 0.25)', color: '#ffd700' }}>
-                  {loadingStats ? '...' : customers.filter(c => c.totalPurchases >= 3).length} Loyal (≥3 visits)
+                  {loadingStats ? '...' : getUnifiedCustomers().filter((c: any) => c.totalPurchases >= 3).length} Loyal (≥3 visits)
                 </span>
               </h2>
               <button 
@@ -1156,7 +1200,7 @@ function MerchantDashboard({
               </button>
             </div>
 
-            {customers.length === 0 ? (
+            {getUnifiedCustomers().length === 0 ? (
               <div className="empty-state">
                 <div style={{ fontSize: '48px', marginBottom: '16px' }}>👥</div>
                 <h3>No Customers Registered Yet</h3>
@@ -1178,7 +1222,7 @@ function MerchantDashboard({
                     </tr>
                   </thead>
                   <tbody>
-                    {customers.map((c) => (
+                    {getUnifiedCustomers().map((c: any) => (
                       <tr key={c.customer}>
                         <td className="mono" style={{ fontSize: '13px' }}>
                           <a 
