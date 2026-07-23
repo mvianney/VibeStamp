@@ -442,9 +442,16 @@ function CustomerMain({
       const prevPurchases = prevCard ? prevCard.totalPurchases : 0;
 
       if (prevCard) {
+        // Card exists on-chain, so this is at least purchase 4
         customerTxCount = Math.max(customerTxCount, 3) + 1;
       } else {
-        customerTxCount += 1;
+        // No card exists on-chain (purchase 1, 2, or 3)
+        // Self-heal: if local storage count is out-of-sync (says >= 3 when card doesn't exist), reset it
+        if (customerTxCount >= 3) {
+          customerTxCount = 1;
+        } else {
+          customerTxCount += 1;
+        }
       }
       counts[scannedUriData.recipient] = customerTxCount;
       localStorage.setItem(countsKey, JSON.stringify(counts));
