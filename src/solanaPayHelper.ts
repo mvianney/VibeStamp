@@ -379,7 +379,7 @@ export const simulatePayment = async (params: {
     transaction.add(
       new TransactionInstruction({
         keys: [],
-        programId: new PublicKey('Mem0111111111111111111111111111111111111111'),
+        programId: new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr'),
         data: Buffer.from(memo, 'utf-8')
       })
     );
