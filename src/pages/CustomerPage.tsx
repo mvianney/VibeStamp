@@ -180,6 +180,7 @@ function CustomerMain({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [isMirrored, setIsMirrored] = useState(false);
 
   // Scanned / Parsed Payment request state
   const [scannedUriData, setScannedUriData] = useState<ParsedQr | null>(null);
@@ -315,6 +316,21 @@ function CustomerMain({
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'environment' }
         });
+
+        // Auto-detect if camera track is user-facing (laptop webcam or front camera) to mirror dynamically
+        const tracks = stream.getVideoTracks();
+        if (tracks.length > 0) {
+          const track = tracks[0];
+          const settings = track.getSettings();
+          const label = (track.label || '').toLowerCase();
+          const isFront = settings.facingMode === 'user' || 
+                          !settings.facingMode || 
+                          label.includes('front') || 
+                          label.includes('webcam') || 
+                          label.includes('user');
+          setIsMirrored(isFront);
+        }
+
         if (videoRef.current && active) {
           videoRef.current.srcObject = stream;
           videoRef.current.setAttribute('playsinline', 'true');
@@ -1081,9 +1097,13 @@ function CustomerMain({
                   <div style={{ textAlign: 'center', width: '100%' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}>Scanner Active</h2>
-                      <button className="btn btn-secondary btn-sm" onClick={() => { setIsScanning(false); if (window.innerWidth < 768) { setActiveTab('dashboard'); } }} style={{ padding: '4px 8px', minWidth: 'auto', fontSize: '11px' }}>
-                        Cancel
-                      </button>
+                        <button 
+                          className="btn btn-secondary btn-sm" 
+                          onClick={() => { setIsScanning(false); if (window.innerWidth < 768) { setActiveTab('dashboard'); } }} 
+                          style={{ padding: '4px 8px', minWidth: 'auto', fontSize: '11px' }}
+                        >
+                          Cancel
+                        </button>
                     </div>
                     <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                       Align the merchant's Solana Pay QR code to checkout.
@@ -1101,7 +1121,15 @@ function CustomerMain({
                     </div>
                   ) : (
                     <div className="scanner-viewport" style={{ margin: '0 auto', width: '100%', maxWidth: '320px' }}>
-                      <video ref={videoRef} className="scanner-video" style={{ width: '100%', borderRadius: '16px' }} />
+                      <video 
+                        ref={videoRef} 
+                        className="scanner-video" 
+                        style={{ 
+                          width: '100%', 
+                          borderRadius: '16px',
+                          transform: isMirrored ? 'scaleX(-1)' : 'none'
+                        }} 
+                      />
                       <div className="scanner-overlay-box">
                         <div className="scanner-target-corners" />
                         <div className="scanner-laser" />
