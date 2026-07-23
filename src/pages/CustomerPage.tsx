@@ -634,16 +634,26 @@ function CustomerMain({
   }
 
   const parseSolanaPayUri = (uri: string): ParsedQr => {
-    if (!uri.startsWith('solana:')) {
+    const cleanUri = uri.trim();
+    if (!cleanUri.startsWith('solana:')) {
       throw new Error('Invalid protocol. Must start with "solana:"');
     }
-    const urlObj = new URL(uri.replace('solana:', 'https://dummy.com/'));
-    const recipient = uri.split('?')[0].replace('solana:', '');
-    const amount = Number(urlObj.searchParams.get('amount') || '0');
-    const reference = urlObj.searchParams.get('reference') || '';
-    const label = decodeURIComponent(urlObj.searchParams.get('label') || '');
-    const message = decodeURIComponent(urlObj.searchParams.get('message') || '');
-    const memo = decodeURIComponent(urlObj.searchParams.get('memo') || '');
+    
+    // Strip "solana:" and leading slashes
+    let mainPart = cleanUri.substring(7);
+    if (mainPart.startsWith('//')) {
+      mainPart = mainPart.substring(2);
+    }
+    
+    const [recipientPart, queryPart] = mainPart.split('?');
+    const recipient = recipientPart;
+    
+    const params = new URLSearchParams(queryPart || '');
+    const amount = Number(params.get('amount') || '0');
+    const reference = params.get('reference') || '';
+    const label = decodeURIComponent(params.get('label') || '');
+    const message = decodeURIComponent(params.get('message') || '');
+    const memo = decodeURIComponent(params.get('memo') || '');
 
     if (!recipient) {
       throw new Error('Missing merchant recipient address');

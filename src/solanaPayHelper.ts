@@ -184,25 +184,24 @@ export const buildSolanaPayUri = (params: {
   memo?: string;
 }): string => {
   const { recipient, amount, reference, splToken, label, message, memo } = params;
-  const url = new URL(`solana:${recipient}`);
-  
-  url.searchParams.append('amount', amount.toString());
-  url.searchParams.append('reference', reference);
+  const parts: string[] = [];
+  parts.push(`amount=${amount}`);
+  parts.push(`reference=${reference}`);
   
   if (splToken) {
-    url.searchParams.append('spl-token', splToken);
+    parts.push(`spl-token=${encodeURIComponent(splToken)}`);
   }
   if (label) {
-    url.searchParams.append('label', label);
+    parts.push(`label=${encodeURIComponent(label)}`);
   }
   if (message) {
-    url.searchParams.append('message', message);
+    parts.push(`message=${encodeURIComponent(message)}`);
   }
   if (memo) {
-    url.searchParams.append('memo', memo);
+    parts.push(`memo=${encodeURIComponent(memo)}`);
   }
 
-  return url.toString();
+  return `solana:${recipient}?${parts.join('&')}`;
 };
 
 /**
