@@ -586,6 +586,15 @@ function MerchantDashboard({
       message: `Purchase: ${productName.trim()}`
     });
 
+    console.log('[DEBUG MERCHANT] Generated Solana Pay URI params:', {
+      recipient: profile.walletPublicKey,
+      amountSol,
+      reference: refKeypair.publicKey.toBase58(),
+      label: profile.storeName,
+      message: `Purchase: ${productName.trim()}`
+    });
+    console.log('[DEBUG MERCHANT] Full generated URI:', uri);
+
     setSolanaPayUri(uri);
 
     try {
@@ -665,7 +674,7 @@ function MerchantDashboard({
         const instructions = txDetails.transaction.message.compiledInstructions;
         const memoInst = instructions.find(inst => {
           const programId = keys[inst.programIdIndex];
-          return programId.toBase58() === 'Mem0111111111111111111111111111111111111111';
+          return programId.toBase58() === 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
         });
         if (memoInst && memoInst.data) {
           const dataBytes = typeof memoInst.data === 'string' ? decodeBase58(memoInst.data) : memoInst.data;
