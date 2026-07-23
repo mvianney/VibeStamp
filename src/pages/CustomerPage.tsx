@@ -19,7 +19,9 @@ import {
   Flame,
   Ticket,
   Layers,
-  Shield
+  Shield,
+  Menu,
+  X
 } from 'lucide-react';
 import jsQR from 'jsqr';
 import { 
@@ -154,8 +156,11 @@ function CustomerMain({
 }) {
   const connection = new Connection(RPC_URL, 'confirmed');
 
-  // Sub-screens: 'loyalty' | 'passport' | 'exchange' | 'raffles' | 'pay' | 'receipt' | 'loyalty-detail'
-  const [activeTab, setActiveTab] = useState<'loyalty' | 'passport' | 'exchange' | 'raffles' | 'pay' | 'receipt' | 'loyalty-detail'>('loyalty');
+  // Sub-screens: 'dashboard' | 'loyalty' | 'passport' | 'exchange' | 'raffles' | 'pay' | 'receipt' | 'loyalty-detail'
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'loyalty' | 'passport' | 'exchange' | 'raffles' | 'pay' | 'receipt' | 'loyalty-detail'>(
+    window.innerWidth < 768 ? 'dashboard' : 'loyalty'
+  );
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
   // Wallet state
   const [balance, setBalance] = useState<number>(0);
@@ -673,11 +678,33 @@ function CustomerMain({
   ];
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" style={{ position: 'relative' }}>
       <header className="app-header">
-        <div className="brand" onClick={() => setActiveTab('loyalty')} style={{ cursor: 'pointer' }}>
-          <div className="brand-logo" style={{ background: 'linear-gradient(135deg, var(--color-accent) 0%, var(--color-primary) 100%)' }}>⚡</div>
-          <div className="brand-info">
+        <div className="brand" style={{ display: 'flex', alignItems: 'center' }}>
+          {/* Hamburger Menu Icon (mobile-only) */}
+          <button
+            className="mobile-hamburger-btn mobile-only-flex"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMobileMenuOpen(!mobileMenuOpen);
+            }}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+              padding: '8px',
+              marginRight: '8px',
+              display: 'none',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+          </button>
+          
+          <div className="brand-logo" onClick={() => { setActiveTab(window.innerWidth < 768 ? 'dashboard' : 'loyalty'); setSelectedCard(null); }} style={{ cursor: 'pointer', background: 'linear-gradient(135deg, var(--color-accent) 0%, var(--color-primary) 100%)' }}>⚡</div>
+          <div className="brand-info" onClick={() => { setActiveTab(window.innerWidth < 768 ? 'dashboard' : 'loyalty'); setSelectedCard(null); }} style={{ cursor: 'pointer' }}>
             <h1>{profile.customerName}</h1>
             <p>VibeStamp Loyalty Portal</p>
           </div>
@@ -697,6 +724,109 @@ function CustomerMain({
           </button>
         </div>
       </header>
+
+      {/* MOBILE HAMBURGER DRAWER */}
+      {mobileMenuOpen && (
+        <div 
+          className="mobile-nav-drawer mobile-only" 
+          style={{
+            position: 'absolute',
+            top: '70px',
+            left: 0,
+            width: '100%',
+            background: 'var(--bg-surface)',
+            borderBottom: '1px solid var(--border-color)',
+            zIndex: 1000,
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+            boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
+            boxSizing: 'border-box'
+          }}
+        >
+          <button
+            className={`mobile-nav-item ${activeTab === 'loyalty' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('loyalty'); setSelectedCard(null); setMobileMenuOpen(false); }}
+            style={{
+              padding: '12px 16px',
+              borderRadius: '8px',
+              background: activeTab === 'loyalty' ? 'rgba(20, 241, 149, 0.08)' : 'transparent',
+              border: 'none',
+              color: activeTab === 'loyalty' ? 'var(--color-primary)' : 'var(--text-secondary)',
+              fontWeight: 600,
+              fontSize: '15px',
+              textAlign: 'left',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px'
+            }}
+          >
+            💳 Loyalty Cards
+          </button>
+          <button
+            className={`mobile-nav-item ${activeTab === 'passport' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('passport'); setSelectedCard(null); setMobileMenuOpen(false); }}
+            style={{
+              padding: '12px 16px',
+              borderRadius: '8px',
+              background: activeTab === 'passport' ? 'rgba(20, 241, 149, 0.08)' : 'transparent',
+              border: 'none',
+              color: activeTab === 'passport' ? 'var(--color-primary)' : 'var(--text-secondary)',
+              fontWeight: 600,
+              fontSize: '15px',
+              textAlign: 'left',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px'
+            }}
+          >
+            🛂 Loyalty Passport
+          </button>
+          <button
+            className={`mobile-nav-item ${activeTab === 'exchange' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('exchange'); setSelectedCard(null); setMobileMenuOpen(false); }}
+            style={{
+              padding: '12px 16px',
+              borderRadius: '8px',
+              background: activeTab === 'exchange' ? 'rgba(20, 241, 149, 0.08)' : 'transparent',
+              border: 'none',
+              color: activeTab === 'exchange' ? 'var(--color-primary)' : 'var(--text-secondary)',
+              fontWeight: 600,
+              fontSize: '15px',
+              textAlign: 'left',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px'
+            }}
+          >
+            🔁 Points Exchange
+          </button>
+          <button
+            className={`mobile-nav-item ${activeTab === 'raffles' ? 'active' : ''}`}
+            onClick={() => { setActiveTab('raffles'); setSelectedCard(null); setMobileMenuOpen(false); }}
+            style={{
+              padding: '12px 16px',
+              borderRadius: '8px',
+              background: activeTab === 'raffles' ? 'rgba(20, 241, 149, 0.08)' : 'transparent',
+              border: 'none',
+              color: activeTab === 'raffles' ? 'var(--color-primary)' : 'var(--text-secondary)',
+              fontWeight: 600,
+              fontSize: '15px',
+              textAlign: 'left',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px'
+            }}
+          >
+            🎟️ Raffle Arena
+          </button>
+        </div>
+      )}
 
       {/* CUSTOMER PROFILE ROW */}
       <div className="profile-banner-wrap">
@@ -887,12 +1017,36 @@ function CustomerMain({
 
       <main className="dashboard-content">
         
+        {/* MOBILE ONLY DASHBOARD TAB */}
+        {activeTab === 'dashboard' && (
+          <div className="mobile-only" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            {/* Primary CTA scanning card */}
+            <div className="panel" style={{ padding: '32px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: '24px' }}>
+              <div style={{ fontSize: '64px', color: 'var(--color-primary)' }}>📷</div>
+              <h2 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>Scan & Claim Rewards</h2>
+              <p style={{ fontSize: '14px', color: 'var(--text-secondary)', maxWidth: '320px', margin: '0 auto', lineHeight: '1.5' }}>
+                Scan a merchant's VibeStamp QR code to pay, start your loyalty card, and earn instant STAMP points!
+              </p>
+              <button 
+                className="btn btn-primary"
+                onClick={() => {
+                  setActiveTab('loyalty');
+                  setIsScanning(true);
+                }}
+                style={{ padding: '14px 28px', borderRadius: '30px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', fontWeight: 700, marginTop: '8px' }}
+              >
+                <Camera size={18} /> Start Camera Scanner
+              </button>
+            </div>
+          </div>
+        )}
+        
         {/* LOYALTY TAB */}
         {activeTab === 'loyalty' && (
           <div className="customer-dashboard-layout" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px', alignItems: 'start' }}>
             
             {/* LEFT COLUMN: LOYALTY CARDS */}
-            <div className="loyalty-cards-section" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className={`loyalty-cards-section ${isScanning ? 'desktop-only' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)' }}>Your Loyalty Cards</h2>
               </div>
@@ -959,7 +1113,7 @@ function CustomerMain({
             </div>
 
             {/* RIGHT COLUMN: SCANNING CARD */}
-            <div className="scanner-section panel" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', border: '1px solid var(--border-color)', minHeight: '340px', justifyContent: 'center', alignItems: 'center' }}>
+            <div className={`scanner-section panel ${!isScanning ? 'desktop-only' : ''}`} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', border: '1px solid var(--border-color)', minHeight: '340px', justifyContent: 'center', alignItems: 'center' }}>
               {!isScanning ? (
                 <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '20px 0' }}>
                   <div style={{ fontSize: '48px', color: 'var(--color-accent)' }}>📷</div>
