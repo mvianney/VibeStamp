@@ -314,7 +314,11 @@ function CustomerMain({
       setCameraError(null);
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' }
+          video: { 
+            facingMode: 'environment',
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          }
         });
 
         // Auto-detect if camera track is user-facing (laptop webcam or front camera) to mirror dynamically
@@ -340,20 +344,29 @@ function CustomerMain({
             if (videoRef.current && canvasRef.current && active) {
               const video = videoRef.current;
               const canvas = canvasRef.current;
-              const ctx = canvas.getContext('2d');
+              const ctx = canvas.getContext('2d', { willReadFrequently: true });
               if (ctx && video.readyState === video.HAVE_ENOUGH_DATA) {
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
+                ctx.imageSmoothingEnabled = false;
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 const code = jsQR(imageData.data, imageData.width, imageData.height, {
                   inversionAttempts: 'dontInvert'
                 });
                 if (code && code.data) {
-                  // Found QR! Stop scanning and parse
-                  clearInterval(scanInterval);
-                  setIsScanning(false);
-                  handleQrCodeScanned(code.data);
+                  console.log('[DEBUG CUSTOMER] jsQR decoded raw data:', code.data);
+                  try {
+                    // Validate that the scanned text parses successfully before accepting it
+                    parseSolanaPayUri(code.data);
+                    
+                    // Found valid QR! Stop scanning and parse
+                    clearInterval(scanInterval);
+                    setIsScanning(false);
+                    handleQrCodeScanned(code.data);
+                  } catch (err) {
+                    console.warn('[DEBUG CUSTOMER] Discarding invalid/incomplete QR scan:', code.data, err);
+                  }
                 }
               }
             }
@@ -378,12 +391,14 @@ function CustomerMain({
 
   // QR parsing handler
   const handleQrCodeScanned = (qrData: string) => {
+    console.log('[DEBUG CUSTOMER] handleQrCodeScanned raw QR data:', qrData);
     try {
       const parsed = parseSolanaPayUri(qrData);
+      console.log('[DEBUG CUSTOMER] parsed Solana Pay URI:', parsed);
       setScannedUriData(parsed);
       setActiveTab('pay');
     } catch (e: any) {
-      console.error(e);
+      console.error('[DEBUG CUSTOMER] parsing QR failed:', e);
       alert(`Invalid QR code: ${e.message || e}`);
       // Restart scanner
       setActiveTab('loyalty');
@@ -398,9 +413,19 @@ function CustomerMain({
     setPayStatusText('Generating Solana Pay transaction...');
 
     try {
+      console.log('[DEBUG CUSTOMER] Initiating checkout keys:', {
+        recipientRaw: scannedUriData.recipient,
+        referenceRaw: scannedUriData.reference,
+        secretKeyLength: profile.walletSecretKey?.length
+      });
       const customerKeypair = Keypair.fromSecretKey(new Uint8Array(profile.walletSecretKey));
-      const merchantPublicKey = new PublicKey(scannedUriData.recipient);
-      const referencePublicKey = new PublicKey(scannedUriData.reference);
+      const merchantPublicKey = new PublicKey(scannedUriData.recipient.trim());
+      const referencePublicKey = new PublicKey(scannedUriData.reference.trim());
+      console.log('[DEBUG CUSTOMER] Keypairs/PublicKeys generated successfully:', {
+        customerPubkey: customerKeypair.publicKey.toBase58(),
+        merchantPubkey: merchantPublicKey.toBase58(),
+        referencePubkey: referencePublicKey.toBase58()
+      });
 
       // Construct auto memo: "Customer Name - Product Name"
       const productNameClean = scannedUriData.message.replace('Purchase: ', '').trim();
