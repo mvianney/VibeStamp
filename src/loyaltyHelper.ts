@@ -611,3 +611,18 @@ export const initializePassport = async (
     .rpc();
   return tx;
 };
+
+export const requestFaucetFunding = async (recipientAddress: string): Promise<{ success: boolean; signature?: string; balance?: number; message?: string }> => {
+  const response = await fetch('/api/fund-wallet', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ recipient: recipientAddress }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || 'Faucet request failed');
+  }
+  return data;
+};

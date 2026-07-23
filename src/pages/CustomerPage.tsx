@@ -33,6 +33,7 @@ import {
   getExchangeAgreement,
   getPassportState,
   getPassportPda,
+  requestFaucetFunding,
   type LoyaltyCard,
   type MerchantState,
   type RaffleState,
@@ -68,15 +69,10 @@ function CustomerSetup({ onComplete }: { onComplete: (p: CustomerProfile) => voi
     // Auto-airdrop ~5 SOL in three silent 2-SOL requests.
     // Devnet caps individual requests at 2 SOL, so we fire three back-to-back.
     // Any that hit the rate-limiter fail silently — the user still proceeds.
-    const conn = connectionRef.current;
-    for (let i = 0; i < 2; i++) {
-      try {
-        const sig = await conn.requestAirdrop(keypair.publicKey, 2 * LAMPORTS_PER_SOL);
-        const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash();
-        await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
-      } catch {
-        // Silent fail — rate-limiter or devnet hiccup; proceed regardless
-      }
+    try {
+      await requestFaucetFunding(keypair.publicKey.toBase58());
+    } catch (e) {
+      console.warn('Backend setup airdrop failed:', e);
     }
 
     const profile: CustomerProfile = {
@@ -101,7 +97,7 @@ function CustomerSetup({ onComplete }: { onComplete: (p: CustomerProfile) => voi
         </div>
         <h2 className="setup-title">Your VibeStamp Wallet</h2>
         <p className="setup-subtitle">
-          A fresh Devnet wallet has been created for you. 4 free SOL will be airdropped to your
+          A fresh Devnet wallet has been created for you. 0.5 free SOL will be airdropped to your
           wallet automatically to get you started on VibeStamp — no extra setup needed since
           we're on Devnet.
         </p>
@@ -235,18 +231,14 @@ function CustomerMain({
   const handleAirdrop = async () => {
     if (isAirdropping) return;
     setIsAirdropping(true);
-    // Add message to local console
-    console.log('Requesting 2 SOL airdrop from Devnet faucet...');
+    console.log('Requesting 0.05 SOL airdrop from backend faucet...');
     try {
-      const pubkey = new PublicKey(profile.walletPublicKey);
-      const sig = await connection.requestAirdrop(pubkey, 2 * LAMPORTS_PER_SOL);
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
-      console.log('Airdrop confirmed! 2 SOL added.');
+      await requestFaucetFunding(profile.walletPublicKey);
+      console.log('Airdrop confirmed! 0.05 SOL added.');
       await refreshBalance();
     } catch (e: any) {
       console.error('Airdrop failed:', e);
-      alert(`Airdrop rate limit hit or faucet empty: ${e.message || e}. Try again in 30 seconds.`);
+      alert(`Airdrop failed: ${e.message || e}`);
     } finally {
       setIsAirdropping(false);
     }
@@ -293,14 +285,15 @@ function CustomerMain({
         if (active) setBalance(sol);
         
         if (sol < 0.1) {
-          // Request 2 SOL
-          const sig = await connection.requestAirdrop(pubkey, 2 * LAMPORTS_PER_SOL);
-          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-          await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
-          const finalBal = await connection.getBalance(pubkey, 'confirmed');
-          sol = finalBal / LAMPORTS_PER_SOL;
-          if (active) {
-            setBalance(sol);
+          try {
+            await requestFaucetFunding(profile.walletPublicKey);
+            const finalBal = await connection.getBalance(pubkey, 'confirmed');
+            sol = finalBal / LAMPORTS_PER_SOL;
+            if (active) {
+              setBalance(sol);
+            }
+          } catch (e) {
+            console.warn('Mount auto-airdrop failed:', e);
           }
         }
       } catch (e: any) {
@@ -796,7 +789,7 @@ function CustomerMain({
               }}
             >
               <RefreshCw size={14} className={isAirdropping ? "spin" : ""} style={{ animation: isAirdropping ? 'spin 1s linear infinite' : 'none', marginRight: '6px' }} />
-              <span>{isAirdropping ? 'Airdropping...' : 'Airdrop 2 SOL'}</span>
+              <span>{isAirdropping ? 'Airdropping...' : 'Airdrop 0.5 SOL'}</span>
             </button>
             <span style={{ fontSize: '10px', color: 'var(--color-primary)', textTransform: 'lowercase', letterSpacing: '0.5px' }}>
               solana devnet faucet

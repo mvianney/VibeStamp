@@ -56,21 +56,10 @@ function MerchantSetup({ onComplete }: { onComplete: (p: MerchantProfile) => voi
     };
     localStorage.setItem('vibestamp_merchant_profile', JSON.stringify(profile));
 
-    // Silently airdrop 2 SOL so the merchant wallet can cover on-chain fees.
-    // Fire-and-forget: failure is non-blocking — devnet faucet may rate-limit.
     if (connectionRef.current) {
       try {
-        const sig = await connectionRef.current.requestAirdrop(
-          keypair.publicKey,
-          2 * LAMPORTS_PER_SOL
-        );
-        const { blockhash, lastValidBlockHeight } =
-          await connectionRef.current.getLatestBlockhash();
-        await connectionRef.current.confirmTransaction(
-          { signature: sig, blockhash, lastValidBlockHeight },
-          'confirmed'
-        );
-
+        await requestFaucetFunding(keypair.publicKey.toBase58());
+        
         // Call the on-chain initialization
         await initializeMerchantState(
           connectionRef.current,
@@ -81,7 +70,7 @@ function MerchantSetup({ onComplete }: { onComplete: (p: MerchantProfile) => voi
           500 // default 500 referral bonus points
         );
       } catch (e) {
-        console.warn('Background setup/airdrop failed:', e);
+        console.warn('Background setup/airdrop/initialization failed:', e);
       }
     }
 
@@ -193,7 +182,7 @@ function MerchantSetup({ onComplete }: { onComplete: (p: MerchantProfile) => voi
               style={{ background: 'rgba(0,0,0,0.2)', fontSize: '12px' }}
             />
             <span className="field-hint wallet-credit-hint">
-              ⚡ 2 SOL will be credited to your wallet for on-chain transaction fees.
+              ⚡ 0.5 SOL will be credited to your wallet for on-chain transaction fees.
             </span>
           </div>
 
@@ -233,6 +222,7 @@ import {
   getRaffles,
   initializeExchangeAgreement,
   getMerchantState,
+  requestFaucetFunding,
   type LoyaltyCard,
   type RaffleState
 } from '../loyaltyHelper';
@@ -400,7 +390,6 @@ function MerchantDashboard({
   };
 
   // Load merchant SOL balance
-  const [isAirdropping, setIsAirdropping] = useState(false);
 
   const refreshBalance = async () => {
     setLoadingBalance(true);
@@ -416,39 +405,7 @@ function MerchantDashboard({
     }
   };
 
-  const handleMerchantAirdrop = async () => {
-    if (isAirdropping) return;
-    setIsAirdropping(true);
-    console.log('Requesting 2 SOL airdrop from Devnet faucet for store...');
-    try {
-      const sig = await connection.requestAirdrop(merchantPublicKey, 2 * LAMPORTS_PER_SOL);
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
-      console.log('Airdrop confirmed! 2 SOL added.');
-      await refreshBalance();
 
-      // Check and auto-initialize merchant state if not initialized yet
-      const mState = await getMerchantState(connection, profile.walletPublicKey);
-      if (!mState) {
-        console.log('Initializing merchant state on-chain...');
-        const merchantKeypair = Keypair.fromSecretKey(new Uint8Array(profile.walletSecretKey));
-        await initializeMerchantState(
-          connection,
-          merchantKeypair,
-          profile.storeName,
-          profile.pointRate,
-          profile.redemptionRate,
-          500
-        );
-        console.log('Merchant state successfully initialized on-chain!');
-      }
-    } catch (e: any) {
-      console.error('Airdrop/initialization failed:', e);
-      alert(`Airdrop rate limit hit or faucet empty: ${e.message || e}. Try again in 30 seconds.`);
-    } finally {
-      setIsAirdropping(false);
-    }
-  };
 
   // 1. Fetch dashboard data
   useEffect(() => {
@@ -472,9 +429,7 @@ function MerchantDashboard({
         // Auto-airdrop check on mount for merchant
         if (sol < 0.1) {
           try {
-            const sig = await connection.requestAirdrop(merchantPublicKey, 2 * LAMPORTS_PER_SOL);
-            const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-            await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+            await requestFaucetFunding(profile.walletPublicKey);
             const finalBal = await connection.getBalance(merchantPublicKey, 'confirmed');
             sol = finalBal / LAMPORTS_PER_SOL;
             if (active) {
@@ -600,16 +555,14 @@ function MerchantDashboard({
   const handleFundSimCustomer = async () => {
     if (!simCustomerKeypair) return;
     setSimFunding(true);
-    setSimConsole(prev => [...prev, { text: 'Requesting airdrop of 2 SOL from Devnet faucet...', type: 'info' }]);
+    setSimConsole(prev => [...prev, { text: 'Requesting airdrop of 0.05 SOL from backend faucet...', type: 'info' }]);
     try {
-      const sig = await connection.requestAirdrop(simCustomerKeypair.publicKey, 2 * LAMPORTS_PER_SOL);
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+      await requestFaucetFunding(simCustomerKeypair.publicKey.toBase58());
       await refreshSimBalance(simCustomerKeypair.publicKey);
-      setSimConsole(prev => [...prev, { text: 'Airdrop confirmed! 2 SOL added to simulator wallet.', type: 'success' }]);
+      setSimConsole(prev => [...prev, { text: 'Airdrop confirmed! 0.05 SOL added to simulator wallet.', type: 'success' }]);
     } catch (err) {
       console.error(err);
-      setSimConsole(prev => [...prev, { text: 'Airdrop rate limit hit. Try again in 30 seconds.', type: 'error' }]);
+      setSimConsole(prev => [...prev, { text: 'Airdrop failed. Faucet rate limited or depleted.', type: 'error' }]);
     } finally {
       setSimFunding(false);
     }
@@ -1037,30 +990,7 @@ function MerchantDashboard({
                   </button>
                 </div>
               ) : (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: '8px' }}>
-                  <span className="stat-value">{storeBalance.toFixed(4)} SOL</span>
-                  {storeBalance < 1.0 && (
-                    <button
-                      onClick={handleMerchantAirdrop}
-                      disabled={isAirdropping}
-                      style={{
-                        background: 'rgba(20,241,149,0.08)',
-                        border: '1px solid rgba(20,241,149,0.2)',
-                        borderRadius: '4px',
-                        color: 'var(--color-primary)',
-                        fontSize: '11px',
-                        padding: '2px 8px',
-                        cursor: isAirdropping ? 'not-allowed' : 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px'
-                      }}
-                    >
-                      <RefreshCw size={10} className={isAirdropping ? "spin" : ""} style={{ animation: isAirdropping ? 'spin 1s linear infinite' : 'none' }} />
-                      {isAirdropping ? 'Airdropping...' : 'Airdrop 2 SOL'}
-                    </button>
-                  )}
-                </div>
+                <span className="stat-value">{storeBalance.toFixed(4)} SOL</span>
               )}
             </div>
           </div>
