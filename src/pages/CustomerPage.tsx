@@ -217,8 +217,6 @@ function CustomerMain({
   const [stakingStatus, setStakingStatus] = useState<Record<number, { success: boolean; msg: string } | null>>({});
 
   // Load customer stats
-  const [isAirdropping, setIsAirdropping] = useState(false);
-
   const refreshBalance = async () => {
     setLoadingBalance(true);
     setBalanceError(null);
@@ -230,22 +228,6 @@ function CustomerMain({
       setBalanceError(e.message || 'Failed to fetch balance');
     } finally {
       setLoadingBalance(false);
-    }
-  };
-
-  const handleAirdrop = async () => {
-    if (isAirdropping) return;
-    setIsAirdropping(true);
-    console.log('Requesting 0.05 SOL airdrop from backend faucet...');
-    try {
-      await requestFaucetFunding(profile.walletPublicKey);
-      console.log('Airdrop confirmed! 0.05 SOL added.');
-      await refreshBalance();
-    } catch (e: any) {
-      console.error('Airdrop failed:', e);
-      alert(`Airdrop failed: ${e.message || e}`);
-    } finally {
-      setIsAirdropping(false);
     }
   };
 
@@ -683,7 +665,7 @@ function CustomerMain({
         <div className="brand" style={{ display: 'flex', alignItems: 'center' }}>
           {/* Hamburger Menu Icon (mobile-only) */}
           <button
-            className="mobile-hamburger-btn mobile-only-flex"
+            className="mobile-hamburger-btn"
             onClick={(e) => {
               e.stopPropagation();
               setMobileMenuOpen(!mobileMenuOpen);
@@ -695,7 +677,6 @@ function CustomerMain({
               cursor: 'pointer',
               padding: '8px',
               marginRight: '8px',
-              display: 'none',
               alignItems: 'center',
               justifyContent: 'center',
             }}
@@ -710,10 +691,23 @@ function CustomerMain({
           </div>
         </div>
         
-        <div className="header-actions">
-          <div className="network-badge">
-            <span className="network-dot" />
-            Devnet
+        <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+            <div className="network-badge">
+              <span className="network-dot" />
+              Devnet
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: 'var(--text-muted)' }}>
+              <span className="mono">{profile.walletPublicKey.slice(0, 4)}...{profile.walletPublicKey.slice(-4)}</span>
+              <button 
+                className="btn-icon" 
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                onClick={copyWalletKey}
+                title="Copy Address"
+              >
+                {copiedKey ? <Check size={10} style={{ color: 'var(--color-primary)' }} /> : <Copy size={10} />}
+              </button>
+            </div>
           </div>
           <button
             className="btn btn-secondary btn-sm"
@@ -728,15 +722,15 @@ function CustomerMain({
       {/* MOBILE HAMBURGER DRAWER */}
       {mobileMenuOpen && (
         <div 
-          className="mobile-nav-drawer mobile-only" 
+          className="mobile-nav-drawer" 
           style={{
             position: 'absolute',
             top: '70px',
             left: 0,
             width: '100%',
-            background: 'var(--bg-surface)',
+            background: '#12141e',
             borderBottom: '1px solid var(--border-color)',
-            zIndex: 1000,
+            zIndex: 2000,
             padding: '16px',
             display: 'flex',
             flexDirection: 'column',
@@ -829,102 +823,55 @@ function CustomerMain({
       )}
 
       {/* CUSTOMER PROFILE ROW */}
-      <div className="profile-banner-wrap">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <span style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.5px' }}>YOUR CUSTOMER WALLET</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <span className="mono" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
-              {profile.walletPublicKey.slice(0, 8)}...{profile.walletPublicKey.slice(-8)}
-            </span>
-            <button 
-              className="btn btn-secondary btn-sm" 
-              style={{ padding: '4px 8px', minWidth: 'auto', fontSize: '11px' }}
-              onClick={copyWalletKey}
+      <div className="profile-banner-wrap" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px 24px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            WALLET BALANCE
+            <button
+              onClick={refreshBalance}
+              disabled={loadingBalance}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                padding: '2px',
+                display: 'flex',
+                alignItems: 'center',
+                opacity: loadingBalance ? 0.5 : 0.8,
+                transition: 'opacity 0.2s',
+              }}
+              title="Refresh Balance"
+              id="btn-refresh-balance-customer"
             >
-              {copiedKey ? <Check size={12} style={{ color: 'var(--color-primary)' }} /> : <Copy size={12} />}
+              <RefreshCw size={12} className={loadingBalance ? "spin" : ""} style={{ animation: loadingBalance ? 'spin 1s linear infinite' : 'none' }} />
             </button>
-            <a 
-              href={`https://explorer.solana.com/address/${profile.walletPublicKey}?cluster=devnet`} 
-              target="_blank" 
-              rel="noreferrer" 
-              className="tx-link"
-              style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '2px' }}
-            >
-              Explorer <ExternalLink size={10} />
-            </a>
-          </div>
-        </div>
-
-        <div className="profile-banner-right">
-          <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center' }} className="mobile-center-align">
-            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              Wallet Balance
+          </span>
+          {loadingBalance ? (
+            <span style={{ fontSize: '16px', color: 'var(--text-muted)', fontStyle: 'italic', height: '36px', display: 'flex', alignItems: 'center' }}>Loading...</span>
+          ) : balanceError ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', color: 'var(--color-secondary)' }}>Error fetching balance</span>
               <button
                 onClick={refreshBalance}
-                disabled={loadingBalance}
                 style={{
                   background: 'transparent',
                   border: 'none',
-                  color: 'var(--text-secondary)',
+                  color: 'var(--color-primary)',
+                  fontSize: '12px',
+                  textDecoration: 'underline',
                   cursor: 'pointer',
-                  padding: '2px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  opacity: loadingBalance ? 0.5 : 0.8,
-                  transition: 'opacity 0.2s',
+                  padding: 0
                 }}
-                title="Refresh Balance"
-                id="btn-refresh-balance-customer"
               >
-                <RefreshCw size={12} className={loadingBalance ? "spin" : ""} style={{ animation: loadingBalance ? 'spin 1s linear infinite' : 'none' }} />
+                Retry
               </button>
-            </span>
-            {loadingBalance ? (
-              <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontStyle: 'italic', height: '28px', display: 'flex', alignItems: 'center' }}>Loading...</span>
-            ) : balanceError ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }} className="mobile-center-align">
-                <span style={{ fontSize: '11px', color: 'var(--color-secondary)' }}>Error fetching balance</span>
-                <button
-                  onClick={refreshBalance}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'var(--color-primary)',
-                    fontSize: '11px',
-                    textDecoration: 'underline',
-                    cursor: 'pointer',
-                    padding: 0
-                  }}
-                >
-                  Retry
-                </button>
-              </div>
-            ) : (
-              <strong className="mono" style={{ fontSize: '20px', color: 'var(--color-primary)', height: '28px', display: 'flex', alignItems: 'center' }}>
-                {balance.toFixed(4)} SOL
-              </strong>
-            )}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-            <button 
-              className="btn btn-secondary"
-              onClick={handleAirdrop}
-              disabled={isAirdropping}
-              style={{ 
-                padding: '10px 14px', 
-                border: '1px solid rgba(20,241,149,0.2)', 
-                background: 'rgba(20,241,149,0.04)', 
-                color: 'var(--color-primary)',
-                cursor: isAirdropping ? 'not-allowed' : 'pointer'
-              }}
-            >
-              <RefreshCw size={14} className={isAirdropping ? "spin" : ""} style={{ animation: isAirdropping ? 'spin 1s linear infinite' : 'none', marginRight: '6px' }} />
-              <span>{isAirdropping ? 'Airdropping...' : 'Airdrop 0.5 SOL'}</span>
-            </button>
-            <span style={{ fontSize: '10px', color: 'var(--color-primary)', textTransform: 'lowercase', letterSpacing: '0.5px' }}>
-              solana devnet faucet
-            </span>
-          </div>
+            </div>
+          ) : (
+            <strong className="mono" style={{ fontSize: '28px', fontWeight: 800, color: 'var(--color-primary)', height: '36px', display: 'flex', alignItems: 'center' }}>
+              {balance.toFixed(4)} SOL
+            </strong>
+          )}
         </div>
       </div>
 
@@ -1134,7 +1081,7 @@ function CustomerMain({
                   <div style={{ textAlign: 'center', width: '100%' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}>Scanner Active</h2>
-                      <button className="btn btn-secondary btn-sm" onClick={() => setIsScanning(false)} style={{ padding: '4px 8px', minWidth: 'auto', fontSize: '11px' }}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => { setIsScanning(false); if (window.innerWidth < 768) { setActiveTab('dashboard'); } }} style={{ padding: '4px 8px', minWidth: 'auto', fontSize: '11px' }}>
                         Cancel
                       </button>
                     </div>
@@ -1148,7 +1095,7 @@ function CustomerMain({
                       <AlertTriangle size={32} style={{ color: 'var(--color-secondary)' }} />
                       <h3>Camera Permission Required</h3>
                       <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', textAlign: 'center' }}>{cameraError}</p>
-                      <button className="btn btn-secondary btn-sm" onClick={() => setIsScanning(false)}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => { setIsScanning(false); if (window.innerWidth < 768) { setActiveTab('dashboard'); } }}>
                         Go Back
                       </button>
                     </div>
